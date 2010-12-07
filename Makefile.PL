@@ -70,6 +70,8 @@ my $runtime_requires = {
   'Path::Class'              => '0.18',
   'Scope::Guard'             => '0.03',
   'SQL::Abstract'            => '1.72',
+  'Log::Structured'          => '0.001001',
+  'Log::Sprintf'             => '0.001001',
   'Try::Tiny'                => '0.04',
 
   # XS (or XS-dependent) libs
