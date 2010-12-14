@@ -3,6 +3,7 @@ Revision history for DBIx::Class
     * New Features / Changes
         - Add DBIx::Class::Storage::Debug::PrettyPrint to this dist so
           docs can be viewed on CPAN etc
+        - Add 'plain' ::PrettyPrint profile for stupid terminals
         - Add quote_names connection option. When set to true automatically
           sets quote_char and name_sep appropriate for your RDBMS
 
