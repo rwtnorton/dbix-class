@@ -23,6 +23,8 @@ plan skip_all => 'Set $ENV{DBICTEST_MSSQL_DSN}, _USER and _PASS to run this test
   ok ($srv_ver, 'Got a test server version on fresh schema: ' . ($srv_ver||'???') );
 }
 
+my $schema;
+
 my $testdb_supports_placeholders = DBICTest::Schema->connect($dsn, $user, $pass)
                                                     ->storage
                                                      ->_supports_typeless_placeholders;
@@ -31,7 +33,6 @@ my @test_storages = (
   'DBI::Sybase::Microsoft_SQL_Server::NoBindVars',
 );
 
-my $schema;
 for my $storage_type (@test_storages) {
   $schema = DBICTest::Schema->connect($dsn, $user, $pass);
 
@@ -41,7 +42,15 @@ for my $storage_type (@test_storages) {
     $schema->storage->_use_typeless_placeholders (0);
   }
 
+  local $ENV{DBIC_MSSQL_FREETDS_LOWVER_NOWARN} = 1; # disable nobindvars warning
+
   $schema->storage->ensure_connected;
+
+  if ($storage_type =~ /NoBindVars\z/) {
+    is $schema->storage->disable_sth_caching, 1,
+      'prepare_cached disabled for NoBindVars';
+  }
+
   isa_ok($schema->storage, "DBIx::Class::Storage::$storage_type");
 
   SKIP: {
@@ -107,10 +116,9 @@ for my $storage_type (@test_storages) {
      amount MONEY NULL
   )
 SQL
-
-  });
-
-  my $rs = $schema->resultset('Money');
+   });
+ 
+   my $rs = $schema->resultset('Money');
 
   my $row;
   lives_ok {
@@ -133,41 +141,193 @@ SQL
   is $rs->find($row->id)->amount,
     undef, 'updated money value to NULL round-trip';
 
-  $rs->create({ amount => 300 }) for (1..3);
-
-  # test multiple active statements
-  lives_ok {
-    my $artist_rs = $schema->resultset('Artist');
-    while (my $row = $rs->next) {
-      my $artist = $artist_rs->next;
-    }
-    $rs->reset;
-  } 'multiple active statements';
-
   $rs->delete;
 
   # test simple transaction with commit
   lives_ok {
     $schema->txn_do(sub {
-      $rs->create({ amount => 400 });
+      $rs->create({ amount => 300 });
     });
   } 'simple transaction';
 
-  cmp_ok $rs->first->amount, '==', 400, 'committed';
-  $rs->reset;
+  cmp_ok $rs->first->amount, '==', 300, 'committed';
 
+  $rs->reset;
+  $rs->delete;
+
+  # make sure transactions cannot execute with active statements
+  $rs->create({ amount => 400 + $_ }) for 1..3;
+
+  $rs->next;
+
+  throws_ok {
+    $schema->txn_do(sub {
+      $rs->create({ amount => 500 });
+    });
+  } qr/active statements/,
+  'attempted transaction dies with active statements';
+
+  $rs->reset;
+  $rs->delete;
+
+  # make sure you cannot use multiple active statements WITHIN a transaction
+  $rs->create({ amount => 600 + $_ }) for 1..3;
+
+  throws_ok {
+    $schema->txn_do(sub {
+      $rs->next;
+      my $artist_rs = $schema->resultset('Artist');
+      $artist_rs->next;
+    });
+  } qr/child connections/,
+  'multiple active statements inside a transaction not allowed';
+
+  $rs->reset;
+  $rs->delete;
+
+  # cannot commit a transaction with an active statement
+  throws_ok {
+    $schema->txn_do(sub {
+      $rs->create({ amount => 650 });
+      $rs->next;
+    });
+  } qr/active statements/,
+  'committing a transaction with active statement not allowed';
+
+  $rs->reset;
   $rs->delete;
 
   # test rollback
   throws_ok {
     $schema->txn_do(sub {
-      $rs->create({ amount => 400 });
+      $rs->create({ amount => 700 });
       die 'mtfnpy';
     });
   } qr/mtfnpy/, 'simple failed txn';
 
   is $rs->first, undef, 'rolled back';
+
   $rs->reset;
+  $rs->delete;
+
+  # test rollback with active statement
+  throws_ok {
+    $schema->txn_do(sub {
+      $rs->create({ amount => 750 });
+
+      $rs->next;
+
+      die 'mtfnpy';
+    });
+  } qr/mtfnpy/, 'failed txn with active statement';
+
+  is $rs->first, undef,
+    'rolled back failed txn with active statement';
+
+  $rs->reset;
+  $rs->delete;
+
+  # test rollback with active prepare_cached statement
+  throws_ok {
+    $schema->txn_do(sub {
+      $rs->create({ amount => 775 });
+
+      my $artist_rs = $schema->resultset('Artist');
+
+      $artist_rs->next;
+
+      die 'mtfnpy';
+    });
+  } qr/mtfnpy/, 'failed txn with active prepare_cached statement';
+
+  is $rs->first, undef,
+    'rolled back failed txn with active prepare_cached statement';
+
+  $rs->reset;
+  $rs->delete;
+
+  # test multiple active statements
+  {
+    $rs->create({ amount => 800 + $_ }) for 1..3;
+
+    my @map = ([ 'Artist 1', 801 ], [ 'Artist 2', 802 ], [ 'Artist 3', 803 ]);
+
+    my $artist_rs = $schema->resultset('Artist')->search({
+      name => { -like => 'Artist %' }
+    });;
+
+    my $i = 0;
+
+    while (my $money_row = $rs->next) {
+      my $artist_row = $artist_rs->next;
+
+      is_deeply [ $artist_row->name, $money_row->amount ], $map[$i++],
+        'multiple active statements';
+    }
+    $rs->reset;
+    $rs->delete;
+  }
+
+  # test transaction handling on a disconnected handle
+  my $wrappers = {
+    no_transaction => sub { shift->() },
+    txn_do => sub { my $code = shift; $schema->txn_do(sub { $code->() } ) },
+    txn_begin => sub { $schema->txn_begin; shift->(); $schema->txn_commit },
+    txn_guard => sub { my $g = $schema->txn_scope_guard; shift->(); $g->commit },
+  };
+  for my $wrapper (keys %$wrappers) {
+    $rs->delete;
+
+    # a reconnect should trigger on next action
+    $schema->storage->_get_dbh->disconnect;
+
+    lives_and {
+      $wrappers->{$wrapper}->( sub {
+        $rs->create({ amount => 900 + $_ }) for 1..3;
+      });
+      is $rs->count, 3;
+    } "transaction on disconnected handle with $wrapper wrapper";
+  }
+
+  TODO: {
+    local $TODO = 'Transaction handling with multiple active statements will '
+                 .'need eager cursor support.';
+
+    # test transaction handling on a disconnected handle with multiple active
+    # statements
+    my $wrappers = {
+      no_transaction => sub { shift->() },
+      txn_do => sub { my $code = shift; $schema->txn_do(sub { $code->() } ) },
+      txn_begin => sub { $schema->txn_begin; shift->(); $schema->txn_commit },
+      txn_guard => sub { my $g = $schema->txn_scope_guard; shift->(); $g->commit },
+    };
+    for my $wrapper (keys %$wrappers) {
+      $rs->reset;
+      $rs->delete;
+      $rs->create({ amount => 1000 + $_ }) for (1..3);
+
+      my $artist_rs = $schema->resultset('Artist')->search({
+        name => { -like => 'Artist %' }
+      });;
+
+      $rs->next;
+
+      my $map = [ ['Artist 1', 1002], ['Artist 2', 1003] ];
+
+      lives_and {
+        my @results;
+
+        $wrappers->{$wrapper}->( sub {
+          while (my $money = $rs->next) {
+            my $artist = $artist_rs->next;
+            push @results, [ $artist->name, $money->amount ];
+          };
+        });
+
+        is_deeply \@results, $map;
+      } "transactions with multiple active statement with $wrapper wrapper";
+    }
+  }
 
   # test RNO detection when version detection fails
   SKIP: {
@@ -206,6 +366,32 @@ lives_ok (sub {
   my $artist = $schema->resultset ('Artist')->search ({}, { order_by => 'artistid' })->next;
   is ($artist->id, 1, 'Artist retrieved successfully');
 }, 'Query-induced autoconnect works');
+
+# test AutoCommit=0
+{
+  my $schema2 = DBICTest::Schema->connect($dsn, $user, $pass, { AutoCommit => 0 });
+
+  my $rs = $schema2->resultset('Money');
+
+  $rs->delete;
+  $schema2->txn_commit;
+
+  is $rs->count, 0;
+
+  diag $_->amount for $rs->all;
+
+  $rs->create({ amount => 3000 });
+  $schema2->txn_rollback;
+
+  is $rs->count, 0, 'rolled back in AutoCommit=0';
+
+  diag $_->amount for $rs->all;
+
+  $rs->create({ amount => 4000 });
+  $schema2->txn_commit;
+
+  is $rs->first->amount, 4000, 'committed in AutoCommit=0';
+}
 
 done_testing;
 

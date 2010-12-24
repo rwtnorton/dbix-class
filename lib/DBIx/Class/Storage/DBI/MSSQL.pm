@@ -82,7 +82,9 @@ sub _prep_for_execute {
         $colinfo->{$col}{data_type} =~ /^money\z/i
       ) {
         my $val = $fields->{$col};
-        $fields->{$col} = \['CAST(? AS MONEY)', [ $col => $val ]];
+        
+        $fields->{$col} = \['CAST(? AS MONEY)', [ $col => $val ]]
+          if not ref $val;
       }
     }
   }
