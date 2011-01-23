@@ -379,6 +379,9 @@ sub _generate_join_clause {
 sub _recurse_from {
   my ($self, $from, @join) = @_;
   my @sqlf;
+
+  push @sqlf, '(' x scalar @join if $self->_parenthesize_joins;
+
   push @sqlf, $self->_from_chunk_to_sql($from);
 
   for (@join) {
@@ -402,9 +405,14 @@ sub _recurse_from {
       push(@sqlf, $self->_from_chunk_to_sql($to));
     }
     push(@sqlf, ' ON ', $self->_join_condition($on));
+
+    push @sqlf, ')' if $self->_parenthesize_joins;
   }
   return join('', @sqlf);
 }
+
+# This is only used in ACCESS at the moment.
+sub _parenthesize_joins { 0 }
 
 sub _from_chunk_to_sql {
   my ($self, $fromspec) = @_;
