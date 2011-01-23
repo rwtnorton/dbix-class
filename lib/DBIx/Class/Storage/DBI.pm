@@ -1161,7 +1161,13 @@ sub _server_info {
 }
 
 sub _get_server_version {
-  shift->_get_dbh->get_info(18);
+  shift->_dbh_get_info(18);
+}
+
+sub _dbh_get_info {
+  my ($self, $info) = @_;
+
+  return try { $self->_get_dbh->get_info($info) } || undef;
 }
 
 sub _determine_driver {
@@ -2925,12 +2931,27 @@ sub _max_column_bytesize {
 }
 
 # Determine if a data_type is some type of BLOB
+# FIXME: these regexes are expensive, result of these checks should be cached in
+# the column_info .
 sub _is_lob_type {
   my ($self, $data_type) = @_;
-  $data_type && ($data_type =~ /(?:lob|bfile|text|image|bytea|memo)/i
-    || $data_type =~ /^long(?:\s*(?:raw|bit\s*varying|varbit|binary
+  $data_type && ($data_type =~ /lob|bfile|text|image|bytea|memo/i
+    || $data_type =~ /^long(?:\s+(?:raw|bit\s*varying|varbit|binary
                                   |varchar|character\s*varying|nvarchar
-                                  |national\s*character\s*varying))?$/xi);
+                                  |national\s*character\s*varying))?\z/xi);
+}
+
+sub _is_binary_lob_type {
+  my ($self, $data_type) = @_;
+  $data_type && ($data_type =~ /blob|bfile|image|bytea/i
+    || $data_type =~ /^long(?:\s+(?:raw|bit\s*varying|varbit|binary))?\z/xi);
+}
+
+sub _is_text_lob_type {
+  my ($self, $data_type) = @_;
+  $data_type && (lc($data_type) eq 'memo'
+    || $data_type =~ /^long(?:\s+(?:varchar|character\s*varying|nvarchar
+                        |national\s*character\s*varying))\z/xi);
 }
 
 1;
