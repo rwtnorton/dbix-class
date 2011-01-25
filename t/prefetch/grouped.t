@@ -76,7 +76,7 @@ for ($cd_rs->all) {
           WHERE ( me.cd IN ( ?, ?, ?, ?, ? ) )
           GROUP BY me.cd
         )
-      count_subq
+      me
     )',
     [ map { [ 'me.cd' => $_] } ($cd_rs->get_column ('cdid')->all) ],
     'count() query generated expected SQL',
@@ -151,7 +151,7 @@ for ($cd_rs->all) {
           WHERE ( me.cdid IS NOT NULL )
           GROUP BY me.cdid
           LIMIT 2
-        ) count_subq
+        ) me
     )',
     [],
     'count() query generated expected SQL',
@@ -161,7 +161,7 @@ for ($cd_rs->all) {
     $most_tracks_rs->as_query,
     '(
       SELECT  me.cdid, me.track_count, me.maxtr,
-              tracks.trackid, tracks.cd, tracks.position, tracks.title, tracks.last_updated_on, tracks.last_updated_at, tracks.small_dt,
+              tracks.trackid, tracks.cd, tracks.position, tracks.title, tracks.last_updated_on, tracks.last_updated_at,
               liner_notes.liner_id, liner_notes.notes
         FROM (
           SELECT me.cdid, COUNT( tracks.trackid ) AS track_count, MAX( tracks.trackid ) AS maxtr
@@ -219,7 +219,7 @@ for ($cd_rs->all) {
         FROM (
           SELECT me.cdid, me.artist, me.title, me.year, me.genreid, me.single_track
             FROM cd me
-          GROUP BY me.cdid, me.artist, me.title, me.year, me.genreid, me.single_track, cdid
+          GROUP BY me.cdid, me.artist, me.title, me.year, me.genreid, me.single_track
           ORDER BY cdid
         ) me
         LEFT JOIN tags tags ON tags.cd = me.cdid
@@ -262,7 +262,7 @@ for ($cd_rs->all) {
           WHERE ( me.cd IN ( ?, ?, ?, ?, ? ) )
           GROUP BY SUBSTR(me.cd, 1, 1)
         )
-      count_subq
+      me
     )',
     [ map { [ 'me.cd' => $_] } ($cd_rs->get_column ('cdid')->all) ],
     'count() query generated expected SQL',

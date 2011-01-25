@@ -9,7 +9,7 @@ use DBICTest;
 use DBIC::SqlMakerTest;
 my $schema = DBICTest->init_schema();
 
-lives_ok (sub {
+{
   my $rs = $schema->resultset( 'CD' )->search(
     {
       'producer.name'   => 'blah',
@@ -27,7 +27,9 @@ lives_ok (sub {
     }
   );
 
-  my @executed = $rs->all();
+  lives_ok {
+    my @executed = $rs->all();
+  } 'Complex join parsed/executed properly';
 
   is_same_sql_bind (
     $rs->as_query,
@@ -50,15 +52,13 @@ lives_ok (sub {
           ON producer_2.producerid = cd_to_producer_2.producer
         JOIN artist artist ON artist.artistid = me.artist
       WHERE ( ( producer.name = ? AND producer_2.name = ? ) )
-      ORDER BY cd_to_producer.cd, producer_to_cd.producer
     )',
     [
       [ 'producer.name' => 'blah' ],
       [ 'producer_2.name' => 'foo' ],
     ],
   );
-
-}, 'Complex join parsed/executed properly');
+}
 
 my @rs1a_results = $schema->resultset("Artist")->search_related('cds', {title => 'Forkful of bees'}, {order_by => 'title'});
 is($rs1a_results[0]->title, 'Forkful of bees', "bare field conditions okay after search related");
@@ -133,7 +133,7 @@ my $merge_rs_2 = $schema->resultset("Artist")->search({ }, { join => 'cds' })->s
 is(scalar(@{$merge_rs_2->{attrs}->{join}}), 1, 'only one join kept when inherited');
 my $merge_rs_2_cd = $merge_rs_2->next;
 
-eval {
+lives_ok (sub {
 
   my @rs_with_prefetch = $schema->resultset('TreeLike')
                                 ->search(
@@ -142,14 +142,44 @@ eval {
     prefetch => [ 'parent', { 'children' => 'parent' } ],
     });
 
-};
-
-ok(!$@, "pathological prefetch ok");
+}, 'pathological prefetch ok');
 
 my $rs = $schema->resultset("Artist")->search({}, { join => 'twokeys' });
 my $second_search_rs = $rs->search({ 'cds_2.cdid' => '2' }, { join =>
 ['cds', 'cds'] });
 is(scalar(@{$second_search_rs->{attrs}->{join}}), 3, 'both joins kept');
 ok($second_search_rs->next, 'query on double joined rel runs okay');
+
+# test joinmap pruner
+lives_ok ( sub {
+  my $rs = $schema->resultset('Artwork')->search (
+    {
+    },
+    {
+      distinct => 1,
+      join => [
+        { artwork_to_artist => 'artist' },
+        { cd => 'artist' },
+      ],
+    },
+  );
+
+  is_same_sql_bind (
+    $rs->count_rs->as_query,
+    '(
+      SELECT COUNT( * )
+        FROM (
+          SELECT me.cd_id
+            FROM cd_artwork me
+            JOIN cd cd ON cd.cdid = me.cd_id
+            JOIN artist artist_2 ON artist_2.artistid = cd.artist
+          GROUP BY me.cd_id
+        ) me
+    )',
+    [],
+  );
+
+  ok (defined $rs->count);
+});
 
 done_testing;

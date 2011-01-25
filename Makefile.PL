@@ -1,56 +1,85 @@
-use inc::Module::Install 0.93;
+use inc::Module::Install 1.00;
 use strict;
 use warnings;
-use POSIX ();
 
 use 5.008001;
 
 use FindBin;
 use lib "$FindBin::Bin/lib";
+use DBIx::Class::Optional::Dependencies;
 
 # adjust ENV for $AUTHOR system() calls
 use Config;
 $ENV{PERL5LIB} = join ($Config{path_sep}, @INC);
 
+use Getopt::Long ();
+
+my $getopt = Getopt::Long::Parser->new(
+  config => [qw/gnu_getopt bundling_override no_ignore_case pass_through/]
+);
+my $args = {
+  skip_author_deps => undef,
+};
+$getopt->getoptions($args, 'skip_author_deps');
+if (@ARGV) {
+  warn "\nIgnoring unrecognized option(s): @ARGV\n\n";
+}
+
+# get cpanX --installdeps . to behave in a checkout (most users do not need
+# the deps for a full test suite run, and if they do - there's MI::AutoInstall
+# for that)
+##
+## DO NOT USE THIS HACK IN YOUR DISTS!!! (it makes #toolchain sad)
+##
+$Module::Install::AUTHOR = 0 if (grep { $ENV{"PERL5_${_}_IS_RUNNING"} } (qw/CPANM CPANPLUS CPAN/) );
 
 ###
 ### DO NOT ADD OPTIONAL DEPENDENCIES HERE, EVEN AS recommends()
 ### All of them should go to DBIx::Class::Optional::Dependencies
 ###
 
-
 name     'DBIx-Class';
 perl_version '5.008001';
 all_from 'lib/DBIx/Class.pm';
 
 my $build_requires = {
-  'DBD::SQLite'              => '1.25',
+  # needed for testing only, not for operation
+  'DBD::SQLite'              => '1.29',
 };
 
 my $test_requires = {
   'File::Temp'               => '0.22',
   'Test::Builder'            => '0.33',
-  'Test::Exception'          => '0',
+  'Test::Exception'          => '0.31',
   'Test::More'               => '0.92',
   'Test::Warn'               => '0.21',
 };
 
 my $runtime_requires = {
   'Carp::Clan'               => '6.0',
-  'Class::Accessor::Grouped' => '0.09002',
+  'Class::Accessor::Grouped' => '0.10002',
   'Class::C3::Componentised' => '1.0005',
   'Class::Inspector'         => '1.24',
+  'Config::Any'              => '0.20',
+  'Context::Preserve'        => '0.01',
+  'Data::Dumper::Concise'    => '1.000',
   'Data::Page'               => '2.00',
-  'DBI'                      => '1.609',
+  'Hash::Merge'              => '0.12',
   'MRO::Compat'              => '0.09',
   'Module::Find'             => '0.06',
   'Path::Class'              => '0.18',
-  'SQL::Abstract'            => '1.61',
-  'SQL::Abstract::Limit'     => '0.13',
-  'Sub::Name'                => '0.04',
-  'Data::Dumper::Concise'    => '1.000',
   'Scope::Guard'             => '0.03',
-  'Context::Preserve'        => '0.01',
+  'SQL::Abstract'            => '1.72',
+  'Try::Tiny'                => '0.04',
+
+  # XS (or XS-dependent) libs
+  'DBI'                      => '1.609',
+  'namespace::clean'         => '0.20',
+  'Sub::Name'                => '0.04',
+  'Variable::Magic'          => '0.44',
+
+  # dual-life corelibs needing a specific bugfixed version
+  'File::Path'               => '2.07',
 };
 
 # this is so we can order requires alphabetically
@@ -61,25 +90,52 @@ my $reqs = {
   test_requires => { %$test_requires },
 };
 
+my %reqs_for_group = %{DBIx::Class::Optional::Dependencies->req_group_list};
+
+# exclude the rdbms_* groups which are for DBIC users
+my $opt_testdeps = {
+  map { %{$reqs_for_group{$_}} } grep { !/^rdbms_/ } keys %reqs_for_group
+};
 
 # require extra modules for testing if we're in a checkout
+my $optdep_msg;
 if ($Module::Install::AUTHOR) {
-  warn <<'EOW';
+  if ($args->{skip_author_deps}) {
+    $optdep_msg = <<'EOW';
+
+******************************************************************************
+******************************************************************************
+***                                                                        ***
+*** IGNORING AUTHOR MODE: no optional test dependencies will be forced.    ***
+***                                                                        ***
+*** If you are using this checkout with the intention of submitting a DBIC ***
+*** patch, you are *STRONGLY ENCOURAGED* to install all dependencies, so   ***
+*** that every possible unit-test will run.                                ***
+***                                                                        ***
+******************************************************************************
+******************************************************************************
+
+EOW
+  }
+  else {
+    $optdep_msg = <<'EOW';
+
 ******************************************************************************
 ******************************************************************************
 ***                                                                        ***
 *** AUTHOR MODE: all optional test dependencies converted to hard requires ***
+***       ( to disable re-run Makefile.PL with --skip_author_deps )        ***
 ***                                                                        ***
 ******************************************************************************
 ******************************************************************************
 
 EOW
 
-  require DBIx::Class::Optional::Dependencies;
-  $reqs->{test_requires} = {
-    %{$reqs->{test_requires}},
-    %{DBIx::Class::Optional::Dependencies->_all_optional_requirements},
-  };
+    $reqs->{test_requires} = {
+      %{$reqs->{test_requires}},
+      %$opt_testdeps
+    };
+  }
 }
 
 # compose final req list, for alphabetical ordering
@@ -103,7 +159,11 @@ for my $mod (sort keys %final_req) {
   $rtype->($mod, $ver);
 }
 
+# output twice since the deplist is > 70 lines
+warn $optdep_msg if $Module::Install::AUTHOR;
 auto_install();
+warn $optdep_msg if $Module::Install::AUTHOR;
+
 
 # re-create various autogenerated documentation bits
 if ($Module::Install::AUTHOR) {
@@ -118,16 +178,32 @@ if ($Module::Install::AUTHOR) {
 
   print "Regenerating Optional/Dependencies.pod\n";
   require DBIx::Class::Optional::Dependencies;
-  DBIx::Class::Optional::Dependencies->_gen_pod;
+  DBIx::Class::Optional::Dependencies->_gen_pod (Meta->version);
 
   # FIXME Disabled due to unsolved issues, ask theorbtwo
   #  require Module::Install::Pod::Inherit;
   #  PodInherit();
 }
 
+
 tests_recursive (qw|
     t
 |);
+
+# temporary(?) until I get around to fix M::I wrt xt/
+# needs Module::Install::AuthorTests
+eval {
+  recursive_author_tests (qw/xt/);
+  1;
+} || do {
+  if ($Module::Install::AUTHOR && ! $args->{skip_author_deps}) {
+    my $err = $@;
+    eval { require Module::Install::AuthorTests }
+      || die "\nYou need Module::Install::AuthorTests installed to run this Makefile.PL in author mode (or supply --skip_author_deps):\n\n$@\n";
+    die $@;
+  }
+};
+
 
 install_script (qw|
     script/dbicadmin
@@ -156,39 +232,69 @@ create_distdir : manifest
 
 EOP
 
-
-
+homepage 'http://www.dbix-class.org/';
 resources 'IRC'         => 'irc://irc.perl.org/#dbix-class';
 resources 'license'     => 'http://dev.perl.org/licenses/';
-resources 'repository'  => 'http://dev.catalyst.perl.org/repos/bast/DBIx-Class/';
+resources 'repository'  => 'git://git.shadowcat.co.uk/dbsrgits/DBIx-Class.git';
 resources 'MailingList' => 'http://lists.scsys.co.uk/cgi-bin/mailman/listinfo/dbix-class';
+resources 'bugtracker'  => 'http://rt.cpan.org/NoAuth/Bugs.html?Dist=DBIx-Class';
 
 # Deprecated/internal modules need no exposure
 no_index directory => $_ for (qw|
   lib/DBIx/Class/Admin
-  lib/DBIx/Class/SQLAHacks
   lib/DBIx/Class/PK/Auto
   lib/DBIx/Class/CDBICompat
 |);
 no_index package => $_ for (qw/
-  DBIx::Class::SQLAHacks DBIx::Class::Storage::DBIHacks
+  DBIx::Class::Storage::DBIHacks
 /);
-
 
 WriteAll();
 
+# Re-write META.yml to _exclude_ all forced build-requires (we do not want to ship
+# this) We are also not using M::I::AuthorRequires as this will be an extra dep,
+# and deps in Makefile.PL still suck
+# Also always test the result so we stop shipping borked dependency lists to CPAN
 
-# Re-write META.yml to _exclude_ all forced requires (we do not want to ship this)
-if ($Module::Install::AUTHOR) {
+# FIXME test_requires is not yet part of META
+my %original_build_requires = ( %$build_requires, %$test_requires );
+my @all_build_requires = @{delete Meta->{values}{build_requires}};
+my %removed_build_requires;
 
-  # FIXME test_requires is not yet part of META
-  my %original_build_requires = ( %$build_requires, %$test_requires );
+for (@all_build_requires) {
+  if ($original_build_requires{$_->[0]}) {
+    push @{Meta->{values}{build_requires}}, $_;
+  }
+  else {
+    $removed_build_requires{$_->[0]} = $_->[1]
+      unless $_->[0] eq 'ExtUtils::MakeMaker';
+  }
+}
 
+# Rewrite only in author mode, the original META should not contain anything anyway
+# if we executed as non-author
+if ($Module::Install::AUTHOR && keys %removed_build_requires) {
   print "Regenerating META with author requires excluded\n";
-  Meta->{values}{build_requires} = [ grep
-    { exists $original_build_requires{$_->[0]} }
-   ( @{Meta->{values}{build_requires}} )
-  ];
-
   Meta->write;
+}
+
+# test that we really took things away (just in case, happened twice somehow)
+if (! -f 'META.yml') {
+  warn "No META.yml generated?! aborting...\n";
+  exit 1;
+}
+my $meta = do { local @ARGV = 'META.yml'; local $/; <> };
+
+# this is safe as there is a fatal check earlier to make sure $opt_testdeps does
+# not contain any real dependencies
+my @illegal_leftovers = grep
+  { $meta =~ /^ \s+ \Q$_\E \: \s+ /mx }
+  ( sort keys %$opt_testdeps )
+;
+
+if (@illegal_leftovers) {
+  die join ("\n",
+    "\n\nFATAL FAIL! It looks like some author dependencies made it to the META.yml:\n",
+    map { "\t$_" } @illegal_leftovers
+  ) . "\n\n";
 }

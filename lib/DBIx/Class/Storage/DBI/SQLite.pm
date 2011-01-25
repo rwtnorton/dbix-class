@@ -6,12 +6,15 @@ use warnings;
 use base qw/DBIx::Class::Storage::DBI/;
 use mro 'c3';
 
-use POSIX 'strftime';
-use File::Copy;
-use File::Spec;
+__PACKAGE__->sql_maker_class('DBIx::Class::SQLMaker::SQLite');
+__PACKAGE__->sql_limit_dialect ('LimitOffset');
 
-sub backup
-{
+sub backup {
+
+  require File::Spec;
+  require File::Copy;
+  require POSIX;
+
   my ($self, $dir) = @_;
   $dir ||= './';
 
@@ -23,42 +26,68 @@ sub backup
   {
     $dbname = $1 if($dsn =~ /^dbi:SQLite:(.+)$/i);
   }
-  $self->throw_exception("Cannot determine name of SQLite db file") 
+  $self->throw_exception("Cannot determine name of SQLite db file")
     if(!$dbname || !-f $dbname);
 
 #  print "Found database: $dbname\n";
 #  my $dbfile = file($dbname);
   my ($vol, $dbdir, $file) = File::Spec->splitpath($dbname);
 #  my $file = $dbfile->basename();
-  $file = strftime("%Y-%m-%d-%H_%M_%S", localtime()) . $file; 
+  $file = POSIX::strftime("%Y-%m-%d-%H_%M_%S", localtime()) . $file;
   $file = "B$file" while(-f $file);
 
   mkdir($dir) unless -f $dir;
   my $backupfile = File::Spec->catfile($dir, $file);
 
-  my $res = copy($dbname, $backupfile);
+  my $res = File::Copy::copy($dbname, $backupfile);
   $self->throw_exception("Backup failed! ($!)") if(!$res);
 
   return $backupfile;
 }
 
 sub deployment_statements {
-  my $self = shift;;
+  my $self = shift;
   my ($schema, $type, $version, $dir, $sqltargs, @rest) = @_;
 
   $sqltargs ||= {};
 
-  my $sqlite_version = $self->_get_dbh->{sqlite_version};
-
-  # numify, SQLT does a numeric comparison
-  $sqlite_version =~ s/^(\d+) \. (\d+) (?: \. (\d+))? .*/${1}.${2}/x;
-
-  $sqltargs->{producer_args}{sqlite_version} = $sqlite_version;
+  if (
+    ! exists $sqltargs->{producer_args}{sqlite_version}
+      and
+    my $dver = $self->_server_info->{normalized_dbms_version}
+  ) {
+    $sqltargs->{producer_args}{sqlite_version} = $dver;
+  }
 
   $self->next::method($schema, $type, $version, $dir, $sqltargs, @rest);
 }
 
-sub datetime_parser_type { return "DateTime::Format::SQLite"; } 
+sub datetime_parser_type { return "DateTime::Format::SQLite"; }
+
+=head2 connect_call_use_foreign_keys
+
+Used as:
+
+    on_connect_call => 'use_foreign_keys'
+
+In L<connect_info|DBIx::Class::Storage::DBI/connect_info> to turn on foreign key
+(including cascading) support for recent versions of SQLite and L<DBD::SQLite>.
+
+Executes:
+
+  PRAGMA foreign_keys = ON 
+
+See L<http://www.sqlite.org/foreignkeys.html> for more information.
+
+=cut
+
+sub connect_call_use_foreign_keys {
+  my $self = shift;
+
+  $self->_do_query(
+    'PRAGMA foreign_keys = ON'
+  );
+}
 
 1;
 

@@ -6,6 +6,7 @@ use Test::Exception;
 use lib qw(t/lib);
 use DBICTest;
 use Path::Class::File ();
+use List::Util qw/shuffle/;
 
 my $schema = DBICTest->init_schema();
 
@@ -18,10 +19,10 @@ my $schema = DBICTest->init_schema();
 #   [ 10000, "ntn" ],
 
 my $start_id = 'populateXaaaaaa';
-my $rows = 10;
+my $rows = 10_000;
 my $offset = 3;
 
-$schema->populate('Artist', [ [ qw/artistid name/ ], map { [ ($_ + $offset) => $start_id++ ] } ( 1 .. $rows ) ] );
+$schema->populate('Artist', [ [ qw/artistid name/ ], map { [ ($_ + $offset) => $start_id++ ] } shuffle ( 1 .. $rows ) ] );
 is (
     $schema->resultset ('Artist')->search ({ name => { -like => 'populateX%' } })->count,
     $rows,
@@ -115,47 +116,46 @@ is($link7->id, 7, 'Link 7 id');
 is($link7->url, undef, 'Link 7 url');
 is($link7->title, 'gtitle', 'Link 7 title');
 
+# populate with literals
+{
+  my $rs = $schema->resultset('Link');
+  $rs->delete;
+
+  # test _execute_array_empty (insert_bulk with all literal sql)
+
+  $rs->populate([
+    (+{
+        url => \"'cpan.org'",
+        title => \"'The ''best of'' cpan'",
+    }) x 5
+  ]);
+
+  is((grep {
+    $_->url eq 'cpan.org' &&
+    $_->title eq "The 'best of' cpan",
+  } $rs->all), 5, 'populate with all literal SQL');
+
+  $rs->delete;
+
+  # test mixed binds with literal sql
+
+  $rs->populate([
+    (+{
+        url => \"'cpan.org'",
+        title => "The 'best of' cpan",
+    }) x 5
+  ]);
+
+  is((grep {
+    $_->url eq 'cpan.org' &&
+    $_->title eq "The 'best of' cpan",
+  } $rs->all), 5, 'populate with all literal SQL');
+
+  $rs->delete;
+}
+
 my $rs = $schema->resultset('Artist');
 $rs->delete;
-
-# test _execute_array_empty (insert_bulk with all literal sql)
-
-$rs->populate([
-    (+{
-        name => \"'DT'",
-        rank => \500,
-        charfield => \"'mtfnpy'",
-    }) x 5
-]);
-
-is((grep {
-  $_->name eq 'DT' &&
-  $_->rank == 500  &&
-  $_->charfield eq 'mtfnpy'
-} $rs->all), 5, 'populate with all literal SQL');
-
-$rs->delete;
-
-# test mixed binds with literal sql
-
-$rs->populate([
-    (+{
-        name => \"'DT'",
-        rank => 500,
-        charfield => \"'mtfnpy'",
-    }) x 5
-]);
-
-is((grep {
-  $_->name eq 'DT' &&
-  $_->rank == 500  &&
-  $_->charfield eq 'mtfnpy'
-} $rs->all), 5, 'populate with all literal SQL');
-
-$rs->delete;
-
-###
-
 throws_ok {
     $rs->populate([
         {
@@ -315,5 +315,11 @@ lives_ok {
       }]
    }])
 } 'multicol-PK has_many populate works';
+
+lives_ok ( sub {
+  $schema->populate('CD', [
+    {cdid => 10001, artist => $artist->id, title => 'Pretty Much Empty', year => 2011, tracks => []},
+  ])
+}, 'empty has_many relationship accepted by populate');
 
 done_testing;

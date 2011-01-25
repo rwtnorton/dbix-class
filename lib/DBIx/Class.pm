@@ -27,7 +27,7 @@ sub component_base_class { 'DBIx::Class' }
 # Always remember to do all digits for the version even if they're 0
 # i.e. first release of 0.XX *must* be 0.XX000. This avoids fBSD ports
 # brain damage and presumably various other packaging systems too
-$VERSION = '0.08120_1';
+$VERSION = '0.08190';
 
 $VERSION = eval $VERSION if $VERSION =~ /_/; # numify for warning-free dev releases
 
@@ -42,8 +42,11 @@ sub MODIFY_CODE_ATTRIBUTES {
 sub _attr_cache {
   my $self = shift;
   my $cache = $self->can('__attr_cache') ? $self->__attr_cache : {};
-  my $rest = eval { $self->next::method };
-  return $@ ? $cache : { %$cache, %$rest };
+
+  return {
+    %$cache,
+    %{ $self->maybe::next::method || {} },
+  };
 }
 
 1;
@@ -58,16 +61,22 @@ The community can be found via:
 
 =over
 
-=item * IRC: L<irc.perl.org#dbix-class (click for instant chatroom login)
-|http://mibbit.com/chat/#dbix-class@irc.perl.org>
+=item * Web Site: L<http://www.dbix-class.org/>
+
+=item * IRC: irc.perl.org#dbix-class
+
+=for html
+<a href="http://chat.mibbit.com/#dbix-class@irc.perl.org">(click for instant chatroom login)</a>
 
 =item * Mailing list: L<http://lists.scsys.co.uk/mailman/listinfo/dbix-class>
 
 =item * RT Bug Tracker: L<https://rt.cpan.org/Dist/Display.html?Queue=DBIx-Class>
 
-=item * SVNWeb: L<http://dev.catalyst.perl.org/svnweb/bast/browse/DBIx-Class/0.08>
+=item * gitweb: L<http://git.shadowcat.co.uk/gitweb/gitweb.cgi?p=dbsrgits/DBIx-Class.git>
 
-=item * SVN: L<http://dev.catalyst.perl.org/repos/bast/DBIx-Class/0.08>
+=item * git: L<git://git.shadowcat.co.uk/dbsrgits/DBIx-Class.git>
+
+=item * twitter L<http://www.twitter.com/dbix_class>
 
 =back
 
@@ -107,7 +116,7 @@ MyDB/Schema/Result/CD.pm:
   __PACKAGE__->table('cd');
   __PACKAGE__->add_columns(qw/ cdid artistid title year /);
   __PACKAGE__->set_primary_key('cdid');
-  __PACKAGE__->belongs_to(artist => 'MyDB::Schema::Artist', 'artistid');
+  __PACKAGE__->belongs_to(artist => 'MyDB::Schema::Result::Artist', 'artistid');
 
   1;
 
@@ -188,7 +197,8 @@ resultset is used as an iterator it only fetches rows off the statement
 handle as requested in order to minimise memory usage. It has auto-increment
 support for SQLite, MySQL, PostgreSQL, Oracle, SQL Server and DB2 and is
 known to be used in production on at least the first four, and is fork-
-and thread-safe out of the box (although your DBD may not be).
+and thread-safe out of the box (although
+L<your DBD may not be|DBI/Threads_and_Thread_Safety>).
 
 This project is still under rapid development, so large new features may be
 marked EXPERIMENTAL - such APIs are still usable but may have edge bugs.
@@ -218,13 +228,23 @@ is traditional :)
 
 =head1 CONTRIBUTORS
 
-abraxxa: Alexander Hartmaier <alex_hartmaier@hotmail.com>
+abraxxa: Alexander Hartmaier <abraxxa@cpan.org>
 
 aherzog: Adam Herzog <adam@herzogdesigns.com>
+
+Alexander Keusch <cpan@keusch.at>
+
+alnewkirk: Al Newkirk <we@ana.im>
+
+amiri: Amiri Barksdale <amiri@metalabel.com>
+
+amoore: Andrew Moore <amoore@cpan.org>
 
 andyg: Andy Grundman <andy@hybridized.org>
 
 ank: Andres Kievsky
+
+arc: Aaron Crane <arc@cpan.org>
 
 arcanez: Justin Hunter <justin.d.hunter@gmail.com>
 
@@ -236,6 +256,8 @@ blblack: Brandon L. Black <blblack@gmail.com>
 
 bluefeet: Aran Deltac <bluefeet@cpan.org>
 
+bphillips: Brian Phillips <bphillips@cpan.org>
+
 boghead: Bryan Beeley <cpan@beeley.org>
 
 bricas: Brian Cassidy <bricas@cpan.org>
@@ -243,6 +265,8 @@ bricas: Brian Cassidy <bricas@cpan.org>
 brunov: Bruno Vecchi <vecchi.b@gmail.com>
 
 caelum: Rafael Kitover <rkitover@cpan.org>
+
+caldrin: Maik Hentsche <maik.hentsche@amd.com>
 
 castaway: Jess Robinson
 
@@ -260,9 +284,13 @@ dkubb: Dan Kubb <dan.kubb-cpan@onautopilot.com>
 
 dnm: Justin Wheeler <jwheeler@datademons.com>
 
+dpetrov: Dimitar Petrov <mitakaa@gmail.com>
+
 dwc: Daniel Westermann-Clark <danieltwc@cpan.org>
 
 dyfrgi: Michael Leuchtenburg <michael@slashhome.org>
+
+freetime: Bill Moseley <moseley@hank.org>
 
 frew: Arthur Axel "fREW" Schmidt <frioux@gmail.com>
 
@@ -272,7 +300,13 @@ gphat: Cory G Watson <gphat@cpan.org>
 
 groditi: Guillermo Roditi <groditi@cpan.org>
 
+Haarg: Graham Knop <haarg@haarg.org>
+
+hobbs: Andrew Rodland <arodland@cpan.org>
+
 ilmari: Dagfinn Ilmari MannsE<aring>ker <ilmari@ilmari.org>
+
+initself: Mike Baas <mike@initselftech.com>
 
 jasonmay: Jason May <jason.a.may@gmail.com>
 
@@ -290,7 +324,11 @@ jon: Jon Schutz <jjschutz@cpan.org>
 
 jshirley: J. Shirley <jshirley@gmail.com>
 
+kaare: Kaare Rasmussen
+
 konobi: Scott McWhirter
+
+littlesavage: Alexey Illarionov <littlesavage@orionet.ru>
 
 lukes: Luke Saunders <luke.saunders@gmail.com>
 
@@ -330,9 +368,15 @@ phaylon: Robert Sedlacek <phaylon@dunkelheit.at>
 
 plu: Johannes Plunien <plu@cpan.org>
 
+Possum: Daniel LeWarne <possum@cpan.org>
+
 quicksilver: Jules Bean
 
 rafl: Florian Ragwitz <rafl@debian.org>
+
+rainboxx: Matthias Dietrich <perl@rb.ly>
+
+rbo: Robert Bohne <rbo@cpan.org>
 
 rbuels: Robert Buels <rmb32@cornell.edu>
 
@@ -346,6 +390,8 @@ robkinyon: Rob Kinyon <rkinyon@cpan.org>
 
 Roman: Roman Filippov <romanf@cpan.org>
 
+Sadrak: Felix Antonius Wilhelm Ostmann <sadrak@cpan.org>
+
 sc_: Just Another Perl Hacker
 
 scotty: Scotty Allen <scotty@scottyallen.com>
@@ -356,13 +402,19 @@ solomon: Jared Johnson <jaredj@nmgi.com>
 
 spb: Stephen Bennett <stephen@freenode.net>
 
+Squeeks <squeek@cpan.org>
+
 sszabo: Stephan Szabo <sszabo@bigpanda.com>
+
+talexb: Alex Beamish <talexb@gmail.com>
 
 teejay : Aaron Trevena <teejay@cpan.org>
 
 Todd Lipcon
 
 Tom Hukins
+
+tonvoon: Ton Voon <tonvoon@cpan.org>
 
 triode: Pete Gamache <gamache@cpan.org>
 
@@ -375,6 +427,8 @@ wdh: Will Hawes
 willert: Sebastian Willert <willert@cpan.org>
 
 wreis: Wallace Reis <wreis@cpan.org>
+
+yrlnry: Mark Jason Dominus <mjd@plover.com>
 
 zamolxes: Bogdan Lucaciu <bogdan@wiz.ro>
 

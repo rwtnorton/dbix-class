@@ -9,10 +9,14 @@ use base qw/
 /;
 use mro 'c3';
 use Carp::Clan qw/^DBIx::Class/;
-use Scalar::Util();
-use List::Util();
+use Scalar::Util 'blessed';
+use List::Util 'first';
 use Sub::Name();
-use Data::Dumper::Concise();
+use Data::Dumper::Concise 'Dumper';
+use Try::Tiny;
+use namespace::clean;
+
+__PACKAGE__->sql_limit_dialect ('RowCountOrGenericSubQ');
 
 __PACKAGE__->mk_group_accessors('simple' =>
     qw/_identity _blob_log_on_update _writer_storage _is_extra_storage
@@ -49,7 +53,7 @@ With this driver there is unfortunately no way to get the C<last_insert_id>
 without doing a C<SELECT MAX(col)>. This is done safely in a transaction
 (locking the table.) See L</INSERTS WITH PLACEHOLDERS>.
 
-A recommended L<DBIx::Class::Storage::DBI/connect_info> setting:
+A recommended L<connect_info|DBIx::Class::Storage::DBI/connect_info> setting:
 
   on_connect_call => [['datetime_setup'], ['blob_setup', log_on_update => 0]]
 
@@ -81,8 +85,8 @@ To turn off this warning set the DBIC_SYBASE_FREETDS_NOWARN environment
 variable.
 EOF
 
-    if (not $self->_typeless_placeholders_supported) {
-      if ($self->_placeholders_supported) {
+    if (not $self->_use_typeless_placeholders) {
+      if ($self->_use_placeholders) {
         $self->auto_cast(1);
       }
       else {
@@ -100,7 +104,7 @@ EOF
     $self->_rebless;
   }
   # this is highly unlikely, but we check just in case
-  elsif (not $self->_typeless_placeholders_supported) {
+  elsif (not $self->_use_typeless_placeholders) {
     $self->auto_cast(1);
   }
 }
@@ -229,12 +233,6 @@ sub connect_call_blob_setup {
     if exists $args{log_on_update};
 }
 
-sub _is_lob_type {
-  my $self = shift;
-  my $type = shift;
-  $type && $type =~ /(?:text|image|lob|bytea|binary|memo)/i;
-}
-
 sub _is_lob_column {
   my ($self, $source, $column) = @_;
 
@@ -247,19 +245,22 @@ sub _prep_for_execute {
 
   my ($sql, $bind) = $self->next::method (@_);
 
-  my $table = Scalar::Util::blessed($ident) ? $ident->from : $ident;
+  my $table = blessed $ident ? $ident->from : $ident;
 
   my $bind_info = $self->_resolve_column_info(
     $ident, [map $_->[0], @{$bind}]
   );
-  my $bound_identity_col = List::Util::first
-    { $bind_info->{$_}{is_auto_increment} }
-    (keys %$bind_info)
+  my $bound_identity_col =
+    first { $bind_info->{$_}{is_auto_increment} }
+    keys %$bind_info
   ;
-  my $identity_col = Scalar::Util::blessed($ident) &&
-    List::Util::first
-    { $ident->column_info($_)->{is_auto_increment} }
-    $ident->columns
+
+  my $columns_info = blessed $ident && $ident->columns_info;
+
+  my $identity_col =
+    $columns_info &&
+    first { $columns_info->{$_}{is_auto_increment} }
+      keys %$columns_info
   ;
 
   if (($op eq 'insert' && $bound_identity_col) ||
@@ -347,9 +348,12 @@ sub insert {
   my $self = shift;
   my ($source, $to_insert) = @_;
 
-  my $identity_col = (List::Util::first
-    { $source->column_info($_)->{is_auto_increment} }
-    $source->columns) || '';
+  my $columns_info = $source->columns_info;
+
+  my $identity_col =
+    (first { $columns_info->{$_}{is_auto_increment} }
+      keys %$columns_info )
+    || '';
 
   # check for empty insert
   # INSERT INTO foo DEFAULT VALUES -- does not work with Sybase
@@ -426,15 +430,15 @@ sub update {
   my $self = shift;
   my ($source, $fields, $where, @rest) = @_;
 
-  my $wantarray = wantarray;
-
   my $blob_cols = $self->_remove_blob_cols($source, $fields);
 
   my $table = $source->name;
 
-  my $identity_col = List::Util::first
-    { $source->column_info($_)->{is_auto_increment} }
-    $source->columns;
+  my $columns_info = $source->columns_info;
+
+  my $identity_col =
+    first { $columns_info->{$_}{is_auto_increment} }
+      keys %$columns_info;
 
   my $is_identity_update = $identity_col && defined $fields->{$identity_col};
 
@@ -463,10 +467,10 @@ sub update {
 
   my @res;
   if (%$fields) {
-    if ($wantarray) {
+    if (wantarray) {
       @res    = $self->next::method(@_);
     }
-    elsif (defined $wantarray) {
+    elsif (defined wantarray) {
       $res[0] = $self->next::method(@_);
     }
     else {
@@ -476,21 +480,20 @@ sub update {
 
   $guard->commit;
 
-  return $wantarray ? @res : $res[0];
+  return wantarray ? @res : $res[0];
 }
 
 sub insert_bulk {
   my $self = shift;
   my ($source, $cols, $data) = @_;
 
-  my $identity_col = List::Util::first
-    { $source->column_info($_)->{is_auto_increment} }
-    $source->columns;
+  my $columns_info = $source->columns_info;
 
-  my $is_identity_insert = (List::Util::first
-    { $_ eq $identity_col }
-    @{$cols}
-  ) ? 1 : 0;
+  my $identity_col =
+    first { $columns_info->{$_}{is_auto_increment} }
+      keys %$columns_info;
+
+  my $is_identity_insert = (first { $_ eq $identity_col } @{$cols}) ? 1 : 0;
 
   my @source_columns = $source->columns;
 
@@ -596,7 +599,8 @@ EOF
       return 0;
   });
 
-  eval {
+  my $exception = '';
+  try {
     my $bulk = $self->_bulk_storage;
 
     my $guard = $bulk->txn_scope_guard;
@@ -640,21 +644,19 @@ EOF
     );
 
     $bulk->_query_end($sql);
+  } catch {
+    $exception = shift;
   };
 
-  my $exception = $@;
   DBD::Sybase::set_cslib_cb($orig_cslib_cb);
 
   if ($exception =~ /-Y option/) {
-    carp <<"EOF";
+    my $w = 'Sybase bulk API operation failed due to character set incompatibility, '
+          . 'reverting to regular array inserts. Try unsetting the LANG environment variable'
+    ;
+    $w .= "\n$exception" if $self->debug;
+    carp $w;
 
-Sybase bulk API operation failed due to character set incompatibility, reverting
-to regular array inserts:
-
-*** Try unsetting the LANG environment variable.
-
-$exception
-EOF
     $self->_bulk_storage(undef);
     unshift @_, $self;
     goto \&insert_bulk;
@@ -728,9 +730,11 @@ sub _remove_blob_cols_array {
 sub _update_blobs {
   my ($self, $source, $blob_cols, $where) = @_;
 
-  my @primary_cols = eval { $source->_pri_cols };
-  $self->throw_exception("Cannot update TEXT/IMAGE column(s): $@")
-    if $@;
+  my @primary_cols = try
+    { $source->_pri_cols }
+    catch {
+      $self->throw_exception("Cannot update TEXT/IMAGE column(s): $_")
+    };
 
 # check if we're updating a single row by PK
   my $pk_cols_in_where = 0;
@@ -762,9 +766,11 @@ sub _insert_blobs {
   my $table = $source->name;
 
   my %row = %$row;
-  my @primary_cols = eval { $source->_pri_cols} ;
-  $self->throw_exception("Cannot update TEXT/IMAGE column(s): $@")
-    if $@;
+  my @primary_cols = try
+    { $source->_pri_cols }
+    catch {
+      $self->throw_exception("Cannot update TEXT/IMAGE column(s): $_")
+    };
 
   $self->throw_exception('Cannot update TEXT/IMAGE column(s) without primary key values')
     if ((grep { defined $row{$_} } @primary_cols) != @primary_cols);
@@ -779,14 +785,13 @@ sub _insert_blobs {
     my $sth = $cursor->sth;
 
     if (not $sth) {
-
       $self->throw_exception(
           "Could not find row in table '$table' for blob update:\n"
-        . Data::Dumper::Concise::Dumper (\%where)
+        . (Dumper \%where)
       );
     }
 
-    eval {
+    try {
       do {
         $sth->func('CS_GET', 1, 'ct_data_info') or die $sth->errstr;
       } while $sth->fetch;
@@ -804,19 +809,20 @@ sub _insert_blobs {
       $sth->func($blob, length($blob), 'ct_send_data') or die $sth->errstr;
 
       $sth->func('ct_finish_send') or die $sth->errstr;
-    };
-    my $exception = $@;
-    $sth->finish if $sth;
-    if ($exception) {
+    }
+    catch {
       if ($self->using_freetds) {
         $self->throw_exception (
-          'TEXT/IMAGE operation failed, probably because you are using FreeTDS: '
-          . $exception
+          "TEXT/IMAGE operation failed, probably because you are using FreeTDS: $_"
         );
-      } else {
-        $self->throw_exception($exception);
+      }
+      else {
+        $self->throw_exception($_);
       }
     }
+    finally {
+      $sth->finish if $sth;
+    };
   }
 }
 
@@ -846,7 +852,7 @@ Used as:
 
   on_connect_call => 'datetime_setup'
 
-In L<DBIx::Class::Storage::DBI/connect_info> to set:
+In L<connect_info|DBIx::Class::Storage::DBI/connect_info> to set:
 
   $dbh->syb_date_fmt('ISO_strict'); # output fmt: 2004-08-21T14:36:48.080Z
   $dbh->do('set dateformat mdy');   # input fmt:  08/13/1979 18:08:55.080
@@ -1069,11 +1075,12 @@ or
 instead.
 
 However, the C<LongReadLen> you pass in
-L<DBIx::Class::Storage::DBI/connect_info> is used to execute the equivalent
-C<SET TEXTSIZE> command on connection.
+L<connect_info|DBIx::Class::Storage::DBI/connect_info> is used to execute the
+equivalent C<SET TEXTSIZE> command on connection.
 
-See L</connect_call_blob_setup> for a L<DBIx::Class::Storage::DBI/connect_info>
-setting you need to work with C<IMAGE> columns.
+See L</connect_call_blob_setup> for a
+L<connect_info|DBIx::Class::Storage::DBI/connect_info> setting you need to work
+with C<IMAGE> columns.
 
 =head1 BULK API
 
@@ -1147,7 +1154,7 @@ Real limits and limited counts using stored procedures deployed on startup.
 
 =item *
 
-Adaptive Server Anywhere (ASA) support, with possible SQLA::Limit support.
+Adaptive Server Anywhere (ASA) support
 
 =item *
 

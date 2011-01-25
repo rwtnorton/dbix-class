@@ -13,8 +13,8 @@ __PACKAGE__->load_classes(qw/
   CD
   FileColumn
   Genre
-  Link
   Bookmark
+  Link
   #dummy
   Track
   Tag
@@ -22,6 +22,7 @@ __PACKAGE__->load_classes(qw/
   Year1999CDs
   CustomSql
   Money
+  TimestampPrimaryKey
   /,
   { 'DBICTest::Schema' => [qw/
     LinerNotes

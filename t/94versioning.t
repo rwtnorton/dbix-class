@@ -1,15 +1,10 @@
-#!/usr/bin/perl
-
 use strict;
 use warnings;
+
 use Test::More;
 use Test::Warn;
 use Test::Exception;
 
-use Path::Class;
-use File::Copy;
-
-#warn "$dsn $user $pass";
 my ($dsn, $user, $pass);
 
 BEGIN {
@@ -18,15 +13,15 @@ BEGIN {
   plan skip_all => 'Set $ENV{DBICTEST_MYSQL_DSN}, _USER and _PASS to run this test'
     unless ($dsn);
 
-  eval { require Time::HiRes }
-    || plan skip_all => 'Test needs Time::HiRes';
-  Time::HiRes->import(qw/time sleep/);
-
   require DBIx::Class;
   plan skip_all =>
       'Test needs ' . DBIx::Class::Optional::Dependencies->req_missing_for ('deploy')
     unless DBIx::Class::Optional::Dependencies->req_ok_for ('deploy')
 }
+
+use Path::Class;
+use File::Copy;
+use Time::HiRes qw/time sleep/;
 
 use lib qw(t/lib);
 use DBICTest; # do not remove even though it is not used
@@ -165,6 +160,37 @@ my $schema_v3 = DBICVersion::Schema->connect($dsn, $user, $pass, { ignore_versio
   is($schema_v3->get_db_version(), '3.0', 'db version number upgraded');
 }
 
+# Now, try a v1 -> v3 upgrade with a file that has comments strategically placed in it.
+# First put the v1 schema back again...
+{
+  # drop all the tables...
+  eval { $schema_v1->storage->dbh->do('drop table ' . $version_table_name) };
+  eval { $schema_v1->storage->dbh->do('drop table ' . $old_table_name) };
+  eval { $schema_v1->storage->dbh->do('drop table TestVersion') };
+
+  {
+    local $DBICVersion::Schema::VERSION = '1.0';
+    $schema_v1->deploy;
+  }
+  is($schema_v1->get_db_version(), '1.0', 'get_db_version 1.0 ok');
+}
+
+# add a "harmless" comment before one of the statements.
+system( qq($^X -pi -e "s/ALTER/-- this is a comment\nALTER/" $fn->{trans_v23};) );
+
+# Then attempt v1 -> v3 upgrade
+{
+  local $SIG{__WARN__} = sub { warn if $_[0] !~ /Attempting upgrade\.$/ };
+  $schema_v3->upgrade();
+  is($schema_v3->get_db_version(), '3.0', 'db version number upgraded to 3.0');
+
+  # make sure that the column added after the comment is actually added.
+  lives_ok ( sub {
+    $schema_v3->storage->dbh->do('select ExtraColumn from TestVersion');
+  }, 'new column created');
+}
+
+
 # check behaviour of DBIC_NO_VERSION_CHECK env var and ignore_version connect attr
 {
   my $schema_version = DBICVersion::Schema->connect($dsn, $user, $pass);
@@ -213,6 +239,33 @@ my $schema_v3 = DBICVersion::Schema->connect($dsn, $user, $pass, { ignore_versio
 
   is($schema_v2->get_db_version(), '3.0', 'Fast deploy/upgrade');
 };
+
+# Check that it Schema::Versioned deals with new/all forms of connect arguments.
+{
+  my $get_db_version_run = 0;
+
+  no warnings qw/once redefine/;
+  local *DBIx::Class::Schema::Versioned::get_db_version = sub {
+    $get_db_version_run = 1;
+    return $_[0]->schema_version;
+  };
+
+  # Make sure the env var isn't whats triggering it
+  local $ENV{DBIC_NO_VERSION_CHECK} = 0;
+
+  DBICVersion::Schema->connect({
+    dsn => $dsn,
+    user => $user, 
+    pass => $pass,
+    ignore_version => 1
+  });
+  
+  ok($get_db_version_run == 0, "attributes pulled from hashref connect_info");
+  $get_db_version_run = 0;
+
+  DBICVersion::Schema->connect( $dsn, $user, $pass, { ignore_version => 1 } );
+  ok($get_db_version_run == 0, "attributes pulled from list connect_info");
+}
 
 unless ($ENV{DBICTEST_KEEP_VERSIONING_DDL}) {
     unlink $_ for (values %$fn);

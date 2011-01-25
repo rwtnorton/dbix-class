@@ -1,5 +1,5 @@
 use strict;
-use warnings;  
+use warnings;
 
 # use this if you keep a copy of DBD::Sybase linked to FreeTDS somewhere else
 BEGIN {
@@ -18,47 +18,44 @@ my ($dsn, $user, $pass) = @ENV{map { "DBICTEST_MSSQL_${_}" } qw/DSN USER PASS/};
 plan skip_all => 'Set $ENV{DBICTEST_MSSQL_DSN}, _USER and _PASS to run this test'
   unless ($dsn);
 
-my @storage_types = (
-  'DBI::Sybase::Microsoft_SQL_Server',
+{
+  my $srv_ver = DBICTest::Schema->connect($dsn, $user, $pass)->storage->_server_info->{dbms_version};
+  ok ($srv_ver, 'Got a test server version on fresh schema: ' . ($srv_ver||'???') );
+}
+
+my $testdb_supports_placeholders = DBICTest::Schema->connect($dsn, $user, $pass)
+                                                    ->storage
+                                                     ->_supports_typeless_placeholders;
+my @test_storages = (
+  $testdb_supports_placeholders ? 'DBI::Sybase::Microsoft_SQL_Server' : (),
   'DBI::Sybase::Microsoft_SQL_Server::NoBindVars',
 );
-my $storage_idx = -1;
+
 my $schema;
+for my $storage_type (@test_storages) {
+  $schema = DBICTest::Schema->connect($dsn, $user, $pass);
 
-my $NUMBER_OF_TESTS_IN_BLOCK = 18;
-for my $storage_type (@storage_types) {
-  $storage_idx++;
-
-  $schema = DBICTest::Schema->clone;
-
-  $schema->connection($dsn, $user, $pass);
-
-  if ($storage_idx != 0) { # autodetect
-    no warnings 'redefine';
-    local *DBIx::Class::Storage::DBI::_typeless_placeholders_supported =
-      sub { 0 };
-#    $schema->storage_type("::$storage_type");
-    $schema->storage->ensure_connected;
-  }
-  else {
-    $schema->storage->ensure_connected;
+  if ($storage_type =~ /NoBindVars\z/) {
+    # since we want to use the nobindvar - disable the capability so the
+    # rebless happens to the correct class
+    $schema->storage->_use_typeless_placeholders (0);
   }
 
-  if ($storage_idx == 0 && ref($schema->storage) =~ /NoBindVars\z/) {
-    my $tb = Test::More->builder;
-    $tb->skip('no placeholders') for 1..$NUMBER_OF_TESTS_IN_BLOCK;
-    next;
-  }
-
+  $schema->storage->ensure_connected;
   isa_ok($schema->storage, "DBIx::Class::Storage::$storage_type");
 
-# start disconnected to test reconnection
-  $schema->storage->_dbh->disconnect;
+  SKIP: {
+    skip 'This version of DBD::Sybase segfaults on disconnect', 1 if DBD::Sybase->VERSION < 1.08;
 
-  my $dbh;
-  lives_ok (sub {
-    $dbh = $schema->storage->dbh;
-  }, 'reconnect works');
+    # start disconnected to test _ping
+    $schema->storage->_dbh->disconnect;
+
+    lives_ok {
+      $schema->storage->dbh_do(sub { $_[1]->do('select 1') })
+    } '_ping works';
+  }
+
+  my $dbh = $schema->storage->dbh;
 
   $dbh->do("IF OBJECT_ID('artist', 'U') IS NOT NULL
       DROP TABLE artist");
@@ -171,6 +168,33 @@ SQL
 
   is $rs->first, undef, 'rolled back';
   $rs->reset;
+
+  # test RNO detection when version detection fails
+  SKIP: {
+    my $storage = $schema->storage;
+    my $version = $storage->_server_info->{normalized_dbms_version};
+
+    skip 'could not detect SQL Server version', 1 if not defined $version;
+
+    my $have_rno = $version >= 9 ? 1 : 0;
+
+    local $storage->{_dbh_details}{info} = {}; # delete cache
+
+    my $rno_detected =
+      ($storage->sql_limit_dialect eq 'RowNumberOver') ? 1 : 0;
+
+    ok (($have_rno == $rno_detected),
+      'row_number() over support detected correctly');
+  }
+
+  {
+    my $schema = DBICTest::Schema->clone;
+    $schema->connection($dsn, $user, $pass);
+
+    like $schema->storage->sql_maker->{limit_dialect},
+      qr/^(?:Top|RowNumberOver)\z/,
+      'sql_maker is correct on unconnected schema';
+  }
 }
 
 # test op-induced autoconnect

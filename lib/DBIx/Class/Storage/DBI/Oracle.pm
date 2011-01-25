@@ -5,23 +5,19 @@ use warnings;
 
 use base qw/DBIx::Class::Storage::DBI/;
 use mro 'c3';
+use Try::Tiny;
+use namespace::clean;
 
 sub _rebless {
-    my ($self) = @_;
+  my ($self) = @_;
 
-    my $version = eval { $self->_get_dbh->get_info(18); };
+  # Default driver
+  my $class = $self->_server_info->{normalized_dbms_version} <= 8
+    ? 'DBIx::Class::Storage::DBI::Oracle::WhereJoins'
+    : 'DBIx::Class::Storage::DBI::Oracle::Generic';
 
-    if ( !$@ ) {
-        my ($major, $minor, $patchlevel) = split(/\./, $version);
-
-        # Default driver
-        my $class = $major <= 8
-          ? 'DBIx::Class::Storage::DBI::Oracle::WhereJoins'
-          : 'DBIx::Class::Storage::DBI::Oracle::Generic';
-
-        $self->ensure_class_loaded ($class);
-        bless $self, $class;
-    }
+  $self->ensure_class_loaded ($class);
+  bless $self, $class;
 }
 
 1;

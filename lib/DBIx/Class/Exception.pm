@@ -3,8 +3,9 @@ package DBIx::Class::Exception;
 use strict;
 use warnings;
 
-use Carp::Clan qw/^DBIx::Class/;
-use Scalar::Util qw/blessed/;
+use Carp::Clan qw/^DBIx::Class|^Try::Tiny/;
+use Try::Tiny;
+use namespace::clean;
 
 use overload
     '""' => sub { shift->{msg} },
@@ -42,7 +43,7 @@ C<$stacktrace> tells it to use L<Carp/longmess> instead of
 L<Carp::Clan/croak>.
 
   DBIx::Class::Exception->throw('Foo');
-  eval { ... }; DBIx::Class::Exception->throw($@) if $@;
+  try { ... } catch { DBIx::Class::Exception->throw(shift) }
 
 =cut
 
@@ -50,13 +51,11 @@ sub throw {
     my ($class, $msg, $stacktrace) = @_;
 
     # Don't re-encapsulate exception objects of any kind
-    die $msg if blessed($msg);
+    die $msg if ref($msg);
 
     # use Carp::Clan's croak if we're not stack tracing
     if(!$stacktrace) {
-        local $@;
-        eval { croak $msg };
-        $msg = $@
+        try { croak $msg } catch { $msg = shift };
     }
     else {
         $msg = Carp::longmess($msg);

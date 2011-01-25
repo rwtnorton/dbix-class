@@ -1,5 +1,5 @@
 use strict;
-use warnings;  
+use warnings;
 no warnings 'uninitialized';
 
 use Test::More;
@@ -556,25 +556,24 @@ SQL
     $row = $rs->create({ amount => 100 });
   } 'inserted a money value';
 
-  is eval { $rs->find($row->id)->amount }, 100, 'money value round-trip';
+  cmp_ok eval { $rs->find($row->id)->amount }, '==', 100,
+    'money value round-trip';
 
   lives_ok {
     $row->update({ amount => 200 });
   } 'updated a money value';
 
-  is eval { $rs->find($row->id)->amount },
-    200, 'updated money value round-trip';
+  cmp_ok eval { $rs->find($row->id)->amount }, '==', 200,
+    'updated money value round-trip';
 
   lives_ok {
     $row->update({ amount => undef });
   } 'updated a money value to NULL';
 
-  my $null_amount = eval { $rs->find($row->id)->amount };
-  ok(
-    (($null_amount == undef) && (not $@)),
-    'updated money value to NULL round-trip'
-  );
-  diag $@ if $@;
+  lives_and {
+    my $null_amount = $rs->find($row->id)->amount;
+    is $null_amount, undef;
+  } 'updated money value to NULL round-trip';
 
 # Test computed columns and timestamps
   $schema->storage->dbh_do (sub {

@@ -11,7 +11,7 @@ my $schema = DBICTest->init_schema();
 my $orig_debug = $schema->storage->debug;
 
 # test the abstract join => SQL generator
-my $sa = new DBIx::Class::SQLAHacks;
+my $sa = new DBIx::Class::SQLMaker;
 
 my @j = (
     { child => 'person' },
@@ -99,15 +99,6 @@ is_same_sql(
   $match,
   'join 5 (SCALAR reference for ON statement) ok'
 );
-
-my @j6 = (
-    { child => 'person' },
-    [ { father => 'person' }, { 'father.person_id' => { '!=', '42' } }, ],
-    [ { mother => 'person' }, { 'mother.person_id' => 'child.mother_id' } ],
-);
-$match = qr/HASH reference arguments are not supported in JOINS/;
-eval { $sa->_recurse_from(@j6) };
-like( $@, $match, 'join 6 (HASH reference for ON statement dies) ok' );
 
 my $rs = $schema->resultset("CD")->search(
            { 'year' => 2001, 'artist.name' => 'Caterwauler McCrae' },

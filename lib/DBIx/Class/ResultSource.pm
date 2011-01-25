@@ -10,10 +10,15 @@ use DBIx::Class::ResultSourceHandle;
 
 use DBIx::Class::Exception;
 use Carp::Clan qw/^DBIx::Class/;
+use Try::Tiny;
+use List::Util 'first';
+use Scalar::Util qw/blessed weaken isweak/;
+use Storable qw/nfreeze thaw/;
+use namespace::clean;
 
 __PACKAGE__->mk_group_accessors('simple' => qw/_ordered_columns
   _columns _primaries _unique_constraints name resultset_attributes
-  schema from _relationships column_info_from_storage source_info
+  from _relationships column_info_from_storage source_info
   source_name sqlt_deploy_callback/);
 
 __PACKAGE__->mk_group_accessors('component_class' => qw/resultset_class
@@ -139,6 +144,13 @@ The column names given will be created as accessor methods on your
 L<DBIx::Class::Row> objects. You can change the name of the accessor
 by supplying an L</accessor> in the column_info hash.
 
+If a column name beginning with a plus sign ('+col1') is provided, the
+attributes provided will be merged with any existing attributes for the
+column, with the new attributes taking precedence in the case that an
+attribute already exists. Using this without a hashref
+(C<< $source->add_columns(qw/+col1 +col2/) >>) is legal, but useless --
+it does the same thing it would do without the plus.
+
 The contents of the column_info are not set in stone. The following
 keys are currently recognised/used by DBIx::Class:
 
@@ -167,7 +179,7 @@ the name of the column will be used.
 
 This contains the column type. It is automatically filled if you use the
 L<SQL::Translator::Producer::DBIx::Class::File> producer, or the
-L<DBIx::Class::Schema::Loader> module. 
+L<DBIx::Class::Schema::Loader> module.
 
 Currently there is no standard set of values for the data_type. Use
 whatever your database supports.
@@ -250,9 +262,9 @@ sequence, if you do not use a trigger to get the nextval, you have to set the
 L</sequence> value as well.
 
 Also set this for MSSQL columns with the 'uniqueidentifier'
-L<DBIx::Class::ResultSource/data_type> whose values you want to automatically
-generate using C<NEWID()>, unless they are a primary key in which case this will
-be done anyway.
+L<data_type|DBIx::Class::ResultSource/data_type> whose values you want to
+automatically generate using C<NEWID()>, unless they are a primary key in which
+case this will be done anyway.
 
 =item extra
 
@@ -288,9 +300,17 @@ sub add_columns {
   my @added;
   my $columns = $self->_columns;
   while (my $col = shift @cols) {
+    my $column_info = {};
+    if ($col =~ s/^\+//) {
+      $column_info = $self->column_info($col);
+    }
+
     # If next entry is { ... } use that for the column info, if not
     # use an empty hashref
-    my $column_info = ref $cols[0] ? shift(@cols) : {};
+    if (ref $cols[0]) {
+      my $new_info = shift(@cols);
+      %$column_info = (%$column_info, %$new_info);
+    }
     push(@added, $col) unless exists $columns->{$col};
     $columns->{$col} = $column_info;
   }
@@ -343,29 +363,31 @@ sub column_info {
   my ($self, $column) = @_;
   $self->throw_exception("No such column $column")
     unless exists $self->_columns->{$column};
-  #warn $self->{_columns_info_loaded}, "\n";
+
   if ( ! $self->_columns->{$column}{data_type}
-       and $self->column_info_from_storage
        and ! $self->{_columns_info_loaded}
-       and $self->schema and $self->storage )
+       and $self->column_info_from_storage
+       and my $stor = try { $self->storage } )
   {
     $self->{_columns_info_loaded}++;
-    my $info = {};
-    my $lc_info = {};
-    # eval for the case of storage without table
-    eval { $info = $self->storage->columns_info_for( $self->from ) };
-    unless ($@) {
-      for my $realcol ( keys %{$info} ) {
-        $lc_info->{lc $realcol} = $info->{$realcol};
-      }
+
+    # try for the case of storage without table
+    try {
+      my $info = $stor->columns_info_for( $self->from );
+      my $lc_info = { map
+        { (lc $_) => $info->{$_} }
+        ( keys %$info )
+      };
+
       foreach my $col ( keys %{$self->_columns} ) {
         $self->_columns->{$col} = {
           %{ $self->_columns->{$col} },
           %{ $info->{$col} || $lc_info->{lc $col} || {} }
         };
       }
-    }
+    };
   }
+
   return $self->_columns->{$column};
 }
 
@@ -391,6 +413,80 @@ sub columns {
     "columns() is a read-only accessor, did you mean add_columns()?"
   ) if @_;
   return @{$self->{_ordered_columns}||[]};
+}
+
+=head2 columns_info
+
+=over
+
+=item Arguments: \@colnames ?
+
+=item Return value: Hashref of column name/info pairs
+
+=back
+
+  my $columns_info = $source->columns_info;
+
+Like L</column_info> but returns information for the requested columns. If
+the optional column-list arrayref is ommitted it returns info on all columns
+currently defined on the ResultSource via L</add_columns>.
+
+=cut
+
+sub columns_info {
+  my ($self, $columns) = @_;
+
+  my $colinfo = $self->_columns;
+
+  if (
+    first { ! $_->{data_type} } values %$colinfo
+      and
+    ! $self->{_columns_info_loaded}
+      and
+    $self->column_info_from_storage
+      and
+    my $stor = try { $self->storage }
+  ) {
+    $self->{_columns_info_loaded}++;
+
+    # try for the case of storage without table
+    try {
+      my $info = $stor->columns_info_for( $self->from );
+      my $lc_info = { map
+        { (lc $_) => $info->{$_} }
+        ( keys %$info )
+      };
+
+      foreach my $col ( keys %$colinfo ) {
+        $colinfo->{$col} = {
+          %{ $colinfo->{$col} },
+          %{ $info->{$col} || $lc_info->{lc $col} || {} }
+        };
+      }
+    };
+  }
+
+  my %ret;
+
+  if ($columns) {
+    for (@$columns) {
+      if (my $inf = $colinfo->{$_}) {
+        $ret{$_} = $inf;
+      }
+      else {
+        $self->throw_exception( sprintf (
+          "No such column '%s' on source %s",
+          $_,
+          $self->source_name,
+        ));
+      }
+    }
+  }
+  else {
+    %ret = %$colinfo;
+  }
+
+  return \%ret;
 }
 
 =head2 remove_columns
@@ -465,10 +561,11 @@ called after L</add_columns>.
 Additionally, defines a L<unique constraint|add_unique_constraint>
 named C<primary>.
 
-The primary key columns are used by L<DBIx::Class::PK::Auto> to
-retrieve automatically created values from the database. They are also
-used as default joining columns when specifying relationships, see
-L<DBIx::Class::Relationship>.
+Note: you normally do want to define a primary key on your sources
+B<even if the underlying database table does not have a primary key>.
+See
+L<DBIx::Class::Manual::Intro/The Significance and Importance of Primary Keys>
+for more info.
 
 =cut
 
@@ -503,15 +600,46 @@ sub primary_columns {
   return @{shift->_primaries||[]};
 }
 
+# a helper method that will automatically die with a descriptive message if
+# no pk is defined on the source in question. For internal use to save
+# on if @pks... boilerplate
 sub _pri_cols {
   my $self = shift;
   my @pcols = $self->primary_columns
     or $self->throw_exception (sprintf(
-      'Operation requires a primary key to be declared on %s via set_primary_key',
-      $self->source_name,
+      "Operation requires a primary key to be declared on '%s' via set_primary_key",
+      # source_name is set only after schema-registration
+      $self->source_name || $self->result_class || $self->name || 'Unknown source...?',
     ));
   return @pcols;
 }
+
+=head2 sequence
+
+Manually define the correct sequence for your table, to avoid the overhead
+associated with looking up the sequence automatically. The supplied sequence
+will be applied to the L</column_info> of each L<primary_key|/set_primary_key>
+
+=over 4
+
+=item Arguments: $sequence_name
+
+=item Return value: undefined
+
+=back
+
+=cut
+
+sub sequence {
+  my ($self,$seq) = @_;
+
+  my @pks = $self->primary_columns
+    or next;
+
+  $_->{sequence} = $seq
+    for values %{ $self->columns_info (\@pks) };
+}
+
 
 =head2 add_unique_constraint
 
@@ -550,8 +678,22 @@ the result source.
 
 sub add_unique_constraint {
   my $self = shift;
+
+  if (@_ > 2) {
+    $self->throw_exception(
+        'add_unique_constraint() does not accept multiple constraints, use '
+      . 'add_unique_constraints() instead'
+    );
+  }
+
   my $cols = pop @_;
-  my $name = shift;
+  if (ref $cols ne 'ARRAY') {
+    $self->throw_exception (
+      'Expecting an arrayref of constraint columns, got ' . ($cols||'NOTHING')
+    );
+  }
+
+  my $name = shift @_;
 
   $name ||= $self->name_unique_constraint($cols);
 
@@ -565,18 +707,70 @@ sub add_unique_constraint {
   $self->_unique_constraints(\%unique_constraints);
 }
 
+=head2 add_unique_constraints
+
+=over 4
+
+=item Arguments: @constraints
+
+=item Return value: undefined
+
+=back
+
+Declare multiple unique constraints on this source.
+
+  __PACKAGE__->add_unique_constraints(
+    constraint_name1 => [ qw/column1 column2/ ],
+    constraint_name2 => [ qw/column2 column3/ ],
+  );
+
+Alternatively, you can specify only the columns:
+
+  __PACKAGE__->add_unique_constraints(
+    [ qw/column1 column2/ ],
+    [ qw/column3 column4/ ]
+  );
+
+This will result in unique constraints named C<table_column1_column2> and
+C<table_column3_column4>, where C<table> is replaced with the table name.
+
+Throws an error if any of the given column names do not yet exist on
+the result source.
+
+See also L</add_unique_constraint>.
+
+=cut
+
+sub add_unique_constraints {
+  my $self = shift;
+  my @constraints = @_;
+
+  if ( !(@constraints % 2) && first { ref $_ ne 'ARRAY' } @constraints ) {
+    # with constraint name
+    while (my ($name, $constraint) = splice @constraints, 0, 2) {
+      $self->add_unique_constraint($name => $constraint);
+    }
+  }
+  else {
+    # no constraint name
+    foreach my $constraint (@constraints) {
+      $self->add_unique_constraint($constraint);
+    }
+  }
+}
+
 =head2 name_unique_constraint
 
 =over 4
 
-=item Arguments: @colnames
+=item Arguments: \@colnames
 
 =item Return value: Constraint name
 
 =back
 
   $source->table('mytable');
-  $source->name_unique_constraint('col1', 'col2');
+  $source->name_unique_constraint(['col1', 'col2']);
   # returns
   'mytable_col1_col2'
 
@@ -819,11 +1013,11 @@ sub resultset {
     'call it on the schema instead.'
   ) if scalar @_;
 
-  return $self->resultset_class->new(
+  $self->resultset_class->new(
     $self,
     {
+      try { %{$self->schema->default_resultset_attributes} },
       %{$self->{resultset_attributes}},
-      %{$self->schema->default_resultset_attributes}
     },
   );
 }
@@ -870,7 +1064,7 @@ clause contents.
 
 =over 4
 
-=item Arguments: None
+=item Arguments: $schema
 
 =item Return value: A schema object
 
@@ -878,8 +1072,29 @@ clause contents.
 
   my $schema = $source->schema();
 
-Returns the L<DBIx::Class::Schema> object that this result source 
-belongs to.
+Sets and/or returns the L<DBIx::Class::Schema> object to which this
+result source instance has been attached to.
+
+=cut
+
+sub schema {
+  if (@_ > 1) {
+    $_[0]->{schema} = $_[1];
+  }
+  else {
+    $_[0]->{schema} || do {
+      my $name = $_[0]->{source_name} || '_unnamed_';
+      my $err = 'Unable to perform storage-dependent operations with a detached result source '
+              . "(source '$name' is not associated with a schema).";
+
+      $err .= ' You need to use $schema->thaw() or manually set'
+            . ' $DBIx::Class::ResultSourceHandle::thaw_schema while thawing.'
+        if $_[0]->{_detached_thaw};
+
+      DBIx::Class::Exception->throw($err);
+    };
+  }
+}
 
 =head2 storage
 
@@ -1003,7 +1218,7 @@ sub add_relationship {
 
   return $self;
 
-  # XXX disabled. doesn't work properly currently. skip in tests.
+# XXX disabled. doesn't work properly currently. skip in tests.
 
   my $f_source = $self->schema->source($f_source_name);
   unless ($f_source) {
@@ -1016,13 +1231,14 @@ sub add_relationship {
   }
   return unless $f_source; # Can't test rel without f_source
 
-  eval { $self->_resolve_join($rel, 'me', {}, []) };
-
-  if ($@) { # If the resolve failed, back out and re-throw the error
-    delete $rels{$rel}; #
+  try { $self->_resolve_join($rel, 'me', {}, []) }
+  catch {
+    # If the resolve failed, back out and re-throw the error
+    delete $rels{$rel};
     $self->_relationships(\%rels);
-    $self->throw_exception("Error creating relationship $rel: $@");
-  }
+    $self->throw_exception("Error creating relationship $rel: $_");
+  };
+
   1;
 }
 
@@ -1129,11 +1345,14 @@ sub reverse_relationship_info {
   my @otherrels = $othertable->relationships();
   my $otherrelationship;
   foreach my $otherrel (@otherrels) {
-    my $otherrel_info = $othertable->relationship_info($otherrel);
+    # this may be a partial schema with the related source not being
+    # available at all
+    my $back = try { $othertable->related_source($otherrel) } or next;
 
-    my $back = $othertable->related_source($otherrel);
+    # did we get back to ourselves?
     next unless $back->source_name eq $self->source_name;
 
+    my $otherrel_info = $othertable->relationship_info($otherrel);
     my @othertestconds;
 
     if (ref $otherrel_info->{cond} eq 'HASH') {
@@ -1226,7 +1445,7 @@ sub _resolve_join {
     for my $rel (keys %$join) {
 
       my $rel_info = $self->relationship_info($rel)
-        or $self->throw_exception("No such relationship ${rel}");
+        or $self->throw_exception("No such relationship '$rel' on " . $self->source_name);
 
       my $force_left = $parent_force_left;
       $force_left ||= lc($rel_info->{attrs}{join_type}||'') eq 'left';
@@ -1256,11 +1475,11 @@ sub _resolve_join {
     );
 
     my $rel_info = $self->relationship_info($join)
-      or $self->throw_exception("No such relationship ${join}");
+      or $self->throw_exception("No such relationship $join on " . $self->source_name);
 
     my $rel_src = $self->related_source($join);
     return [ { $as => $rel_src->from,
-               -source_handle => $rel_src->handle,
+               -rsrc => $rel_src,
                -join_type => $parent_force_left
                   ? 'left'
                   : $rel_info->{attrs}{join_type}
@@ -1269,12 +1488,13 @@ sub _resolve_join {
                -is_single => (
                   $rel_info->{attrs}{accessor}
                     &&
-                  List::Util::first { $rel_info->{attrs}{accessor} eq $_ } (qw/single filter/)
+                  first { $rel_info->{attrs}{accessor} eq $_ } (qw/single filter/)
                 ),
                -alias => $as,
                -relation_chain_depth => $seen->{-relation_chain_depth} || 0,
              },
-             $self->_resolve_condition($rel_info->{cond}, $as, $alias) ];
+             $self->_resolve_condition($rel_info->{cond}, $as, $alias, $join)
+          ];
   }
 }
 
@@ -1326,14 +1546,89 @@ sub resolve_condition {
   $self->_resolve_condition (@_);
 }
 
-# Resolves the passed condition to a concrete query fragment. If given an alias,
-# returns a join condition; if given an object, inverts that object to produce
-# a related conditional from that object.
 our $UNRESOLVABLE_CONDITION = \ '1 = 0';
 
+# Resolves the passed condition to a concrete query fragment and a flag
+# indicating whether this is a cross-table condition. Also an optional
+# list of non-triviail values (notmally conditions) returned as a part
+# of a joinfree condition hash
 sub _resolve_condition {
-  my ($self, $cond, $as, $for) = @_;
-  if (ref $cond eq 'HASH') {
+  my ($self, $cond, $as, $for, $relname) = @_;
+
+  my $obj_rel = !!blessed $for;
+
+  if (ref $cond eq 'CODE') {
+    my $relalias = $obj_rel ? 'me' : $as;
+
+    my ($crosstable_cond, $joinfree_cond) = $cond->({
+      self_alias => $obj_rel ? $as : $for,
+      foreign_alias => $relalias,
+      self_resultsource => $self,
+      foreign_relname => $relname || ($obj_rel ? $as : $for),
+      self_rowobj => $obj_rel ? $for : undef
+    });
+
+    my $cond_cols;
+    if ($joinfree_cond) {
+
+      # FIXME sanity check until things stabilize, remove at some point
+      $self->throw_exception (
+        "A join-free condition returned for relationship '$relname' whithout a row-object to chain from"
+      ) unless $obj_rel;
+
+      # FIXME another sanity check
+      if (
+        ref $joinfree_cond ne 'HASH'
+          or
+        first { $_ !~ /^\Q$relalias.\E.+/ } keys %$joinfree_cond
+      ) {
+        $self->throw_exception (
+          "The join-free condition returned for relationship '$relname' must be a hash "
+         .'reference with all keys being valid columns on the related result source'
+        );
+      }
+
+      # normalize
+      for (values %$joinfree_cond) {
+        $_ = $_->{'='} if (
+          ref $_ eq 'HASH'
+            and
+          keys %$_ == 1
+            and
+          exists $_->{'='}
+        );
+      }
+
+      # see which parts of the joinfree cond are conditionals
+      my $relcol_list = { map { $_ => 1 } $self->related_source($relname)->columns };
+
+      for my $c (keys %$joinfree_cond) {
+        my ($colname) = $c =~ /^ (?: \Q$relalias.\E )? (.+)/x;
+
+        unless ($relcol_list->{$colname}) {
+          push @$cond_cols, $colname;
+          next;
+        }
+
+        if (
+          ref $joinfree_cond->{$c}
+            and
+          ref $joinfree_cond->{$c} ne 'SCALAR'
+            and
+          ref $joinfree_cond->{$c} ne 'REF'
+        ) {
+          push @$cond_cols, $colname;
+          next;
+        }
+      }
+
+      return wantarray ? ($joinfree_cond, 0, $cond_cols) : $joinfree_cond;
+    }
+    else {
+      return wantarray ? ($crosstable_cond, 1) : $crosstable_cond;
+    }
+  }
+  elsif (ref $cond eq 'HASH') {
     my %ret;
     foreach my $k (keys %{$cond}) {
       my $v = $cond->{$k};
@@ -1370,17 +1665,28 @@ sub _resolve_condition {
       } elsif (!defined $as) { # undef, i.e. "no reverse object"
         $ret{$v} = undef;
       } else {
-        $ret{"${as}.${k}"} = "${for}.${v}";
+        $ret{"${as}.${k}"} = { -ident => "${for}.${v}" };
       }
     }
-    return \%ret;
-  } elsif (ref $cond eq 'ARRAY') {
-    return [ map { $self->_resolve_condition($_, $as, $for) } @$cond ];
-  } else {
-   die("Can't handle condition $cond yet :(");
+
+    return wantarray
+      ? ( \%ret, ($obj_rel || !defined $as || ref $as) ? 0 : 1 )
+      : \%ret
+    ;
+  }
+  elsif (ref $cond eq 'ARRAY') {
+    my (@ret, $crosstable);
+    for (@$cond) {
+      my ($cond, $crosstab) = $self->_resolve_condition($_, $as, $for, $relname);
+      push @ret, $cond;
+      $crosstable ||= $crosstab;
+    }
+    return wantarray ? (\@ret, $crosstable) : \@ret;
+  }
+  else {
+    $self->throw_exception ("Can't handle condition $cond for relationship '$relname' yet :(");
   }
 }
-
 
 # Accepts one or more relationships for the current source and returns an
 # array of column names for each of those relationships. Column names are
@@ -1424,7 +1730,7 @@ sub _resolve_prefetch {
     my $as = shift @{$p->{-join_aliases}};
 
     my $rel_info = $self->relationship_info( $pre );
-    $self->throw_exception( $self->name . " has no such relationship '$pre'" )
+    $self->throw_exception( $self->source_name . " has no such relationship '$pre'" )
       unless $rel_info;
     my $as_prefix = ($alias =~ /^.*?\.(.+)$/ ? $1.'.' : '');
     my $rel_source = $self->related_source($pre);
@@ -1447,6 +1753,32 @@ sub _resolve_prefetch {
                        : ()
       ));
       push(@$order, map { "${as}.$_" } (@key, @ord));
+
+      if (my $rel_order = $rel_info->{attrs}{order_by}) {
+        # this is kludgy and incomplete, I am well aware
+        # but the parent method is going away entirely anyway
+        # so sod it
+        my $sql_maker = $self->storage->sql_maker;
+        my ($orig_ql, $orig_qr) = $sql_maker->_quote_chars;
+        my $sep = $sql_maker->name_sep;
+
+        # install our own quoter, so we can catch unqualified stuff
+        local $sql_maker->{quote_char} = ["\x00", "\xFF"];
+
+        my $quoted_prefix = "\x00${as}\xFF";
+
+        for my $chunk ( $sql_maker->_order_by_chunks ($rel_order) ) {
+          my @bind;
+          ($chunk, @bind) = @$chunk if ref $chunk;
+
+          $chunk = "${quoted_prefix}${sep}${chunk}"
+            unless $chunk =~ /\Q$sep/;
+
+          $chunk =~ s/\x00/$orig_ql/g;
+          $chunk =~ s/\xFF/$orig_qr/g;
+          push @$order, \[$chunk, @bind];
+        }
+      }
     }
 
     return map { [ "${as}.$_", "${as_prefix}${pre}.$_", ] }
@@ -1899,23 +2231,83 @@ Returns the class name for objects in the given relationship.
 sub related_class {
   my ($self, $rel) = @_;
   if( !$self->has_relationship( $rel ) ) {
-    $self->throw_exception("No such relationship '$rel'");
+    $self->throw_exception("No such relationship '$rel' on " . $self->source_name);
   }
   return $self->schema->class($self->relationship_info($rel)->{source});
 }
 
 =head2 handle
 
-Obtain a new handle to this source. Returns an instance of a 
-L<DBIx::Class::ResultSourceHandle>.
+=over 4
+
+=item Arguments: None
+
+=item Return value: $source_handle
+
+=back
+
+Obtain a new L<result source handle instance|DBIx::Class::ResultSourceHandle>
+for this source. Used as a serializable pointer to this resultsource, as it is not
+easy (nor advisable) to serialize CODErefs which may very well be present in e.g.
+relationship definitions.
 
 =cut
 
 sub handle {
-    return DBIx::Class::ResultSourceHandle->new({
-        schema         => $_[0]->schema,
-        source_moniker => $_[0]->source_name
-    });
+  return DBIx::Class::ResultSourceHandle->new({
+    source_moniker => $_[0]->source_name,
+
+    # so that a detached thaw can be re-frozen
+    $_[0]->{_detached_thaw}
+      ? ( _detached_source  => $_[0]          )
+      : ( schema            => $_[0]->schema  )
+    ,
+  });
+}
+
+{
+  my $global_phase_destroy;
+
+  END { $global_phase_destroy++ }
+
+  sub DESTROY {
+    return if $global_phase_destroy;
+
+######
+# !!! ACHTUNG !!!!
+######
+#
+# Under no circumstances shall $_[0] be stored anywhere else (like copied to
+# a lexical variable, or shifted, or anything else). Doing so will mess up
+# the refcount of this particular result source, and will allow the $schema
+# we are trying to save to reattach back to the source we are destroying.
+# The relevant code checking refcounts is in ::Schema::DESTROY()
+
+    # if we are not a schema instance holder - we don't matter
+    return if(
+      ! ref $_[0]->{schema}
+        or
+      isweak $_[0]->{schema}
+    );
+
+    # weaken our schema hold forcing the schema to find somewhere else to live
+    weaken $_[0]->{schema};
+
+    # if schema is still there reintroduce ourselves with strong refs back
+    if ($_[0]->{schema}) {
+      my $srcregs = $_[0]->{schema}->source_registrations;
+      for (keys %$srcregs) {
+        $srcregs->{$_} = $_[0] if $srcregs->{$_} == $_[0];
+      }
+    }
+  }
+}
+
+sub STORABLE_freeze { nfreeze($_[0]->handle) }
+
+sub STORABLE_thaw {
+  my ($self, $cloning, $ice) = @_;
+  %$self = %{ (thaw $ice)->resolve };
 }
 
 =head2 throw_exception
@@ -1927,12 +2319,10 @@ See L<DBIx::Class::Schema/"throw_exception">.
 sub throw_exception {
   my $self = shift;
 
-  if (defined $self->schema) {
-    $self->schema->throw_exception(@_);
-  }
-  else {
-    DBIx::Class::Exception->throw(@_);
-  }
+  $self->{schema}
+    ? $self->{schema}->throw_exception(@_)
+    : DBIx::Class::Exception->throw(@_)
+  ;
 }
 
 =head2 source_info

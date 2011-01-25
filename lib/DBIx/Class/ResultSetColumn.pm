@@ -7,7 +7,9 @@ use base 'DBIx::Class';
 
 use Carp::Clan qw/^DBIx::Class/;
 use DBIx::Class::Exception;
-use List::Util;
+
+# not importing first() as it will clash with our own method
+use List::Util ();
 
 =head1 NAME
 
@@ -66,12 +68,12 @@ sub new {
   ;
   if (
     scalar grep
-      { ! $collist{$_} }
-      ( $rs->result_source->schema->storage->_parse_order_by ($orig_attrs->{order_by} ) ) 
+      { ! $collist{$_->[0]} }
+      ( $rs->result_source->schema->storage->_extract_order_criteria ($orig_attrs->{order_by} ) ) 
   ) {
     # nuke the prefetch before collapsing to sql
     my $subq_rs = $rs->search;
-    $subq_rs->{attrs}{join} = $subq_rs->_merge_attr( $subq_rs->{attrs}{join}, delete $subq_rs->{attrs}{prefetch} );
+    $subq_rs->{attrs}{join} = $subq_rs->_merge_joinpref_attr( $subq_rs->{attrs}{join}, delete $subq_rs->{attrs}{prefetch} );
     $new_parent_rs = $subq_rs->as_subselect_rs;
   }
 
@@ -82,7 +84,7 @@ sub new {
   # rs via the _resolved_attrs trick - we need to retain the separation between
   # +select/+as and select/as. At the same time we want to preserve any joins that the
   # prefetch would otherwise generate.
-  $new_attrs->{join} = $rs->_merge_attr( $new_attrs->{join}, delete $new_attrs->{prefetch} );
+  $new_attrs->{join} = $rs->_merge_joinpref_attr( $new_attrs->{join}, delete $new_attrs->{prefetch} );
 
   # {collapse} would mean a has_many join was injected, which in turn means
   # we need to group *IF WE CAN* (only if the column in question is unique)

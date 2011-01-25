@@ -3,7 +3,11 @@ package DBIx::Class::Storage::DBI::Oracle::Generic;
 use strict;
 use warnings;
 use Scope::Guard ();
-use Context::Preserve ();
+use Context::Preserve 'preserve_context';
+use Try::Tiny;
+use namespace::clean;
+
+__PACKAGE__->sql_limit_dialect ('RowNum');
 
 =head1 NAME
 
@@ -15,7 +19,51 @@ DBIx::Class::Storage::DBI::Oracle::Generic - Oracle Support for DBIx::Class
   use base 'DBIx::Class::Core';
   __PACKAGE__->add_columns({ id => { sequence => 'mysequence', auto_nextval => 1 } });
   __PACKAGE__->set_primary_key('id');
-  __PACKAGE__->sequence('mysequence');
+
+  # Somewhere in your Code
+  # add some data to a table with a hierarchical relationship
+  $schema->resultset('Person')->create ({
+        firstname => 'foo',
+        lastname => 'bar',
+        children => [
+            {
+                firstname => 'child1',
+                lastname => 'bar',
+                children => [
+                    {
+                        firstname => 'grandchild',
+                        lastname => 'bar',
+                    }
+                ],
+            },
+            {
+                firstname => 'child2',
+                lastname => 'bar',
+            },
+        ],
+    });
+
+  # select from the hierarchical relationship
+  my $rs = $schema->resultset('Person')->search({},
+    {
+      'start_with' => { 'firstname' => 'foo', 'lastname' => 'bar' },
+      'connect_by' => { 'parentid' => { '-prior' => { -ident => 'personid' } },
+      'order_siblings_by' => { -asc => 'name' },
+    };
+  );
+
+  # this will select the whole tree starting from person "foo bar", creating
+  # following query:
+  # SELECT
+  #     me.persionid me.firstname, me.lastname, me.parentid
+  # FROM
+  #     person me
+  # START WITH
+  #     firstname = 'foo' and lastname = 'bar'
+  # CONNECT BY
+  #     parentid = prior personid
+  # ORDER SIBLINGS BY
+  #     firstname ASC
 
 =head1 DESCRIPTION
 
@@ -30,6 +78,22 @@ versions before 9.
 use base qw/DBIx::Class::Storage::DBI/;
 use mro 'c3';
 
+__PACKAGE__->sql_maker_class('DBIx::Class::SQLMaker::Oracle');
+
+sub _determine_supports_insert_returning {
+  my $self = shift;
+
+# TODO find out which version supports the RETURNING syntax
+# 8i has it and earlier docs are a 404 on oracle.com
+
+  return 1
+    if $self->_server_info->{normalized_dbms_version} >= 8.001;
+
+  return 0;
+}
+
+__PACKAGE__->_use_insert_returning_bound (1);
+
 sub deployment_statements {
   my $self = shift;;
   my ($schema, $type, $version, $dir, $sqltargs, @rest) = @_;
@@ -39,9 +103,13 @@ sub deployment_statements {
   $sqltargs->{quote_table_names} = $quote_char ? 1 : 0;
   $sqltargs->{quote_field_names} = $quote_char ? 1 : 0;
 
-  my $oracle_version = eval { $self->_get_dbh->get_info(18) };
-
-  $sqltargs->{producer_args}{oracle_version} = $oracle_version;
+  if (
+    ! exists $sqltargs->{producer_args}{oracle_version}
+      and
+    my $dver = $self->_server_info->{dbms_version}
+  ) {
+    $sqltargs->{producer_args}{oracle_version} = $dver;
+  }
 
   $self->next::method($schema, $type, $version, $dir, $sqltargs, @rest);
 }
@@ -51,7 +119,7 @@ sub _dbh_last_insert_id {
   my @ids = ();
   foreach my $col (@columns) {
     my $seq = ($source->column_info($col)->{sequence} ||= $self->get_autoinc_seq($source,$col));
-    my $id = $self->_sequence_fetch( 'currval', $seq );
+    my $id = $self->_sequence_fetch( 'CURRVAL', $seq );
     push @ids, $id;
   }
   return @ids;
@@ -61,15 +129,20 @@ sub _dbh_get_autoinc_seq {
   my ($self, $dbh, $source, $col) = @_;
 
   my $sql_maker = $self->sql_maker;
+  my ($ql, $qr) = map { $_ ? (quotemeta $_) : '' } $sql_maker->_quote_chars;
 
   my $source_name;
   if ( ref $source->name eq 'SCALAR' ) {
     $source_name = ${$source->name};
+
+    # the ALL_TRIGGERS match further on is case sensitive - thus uppercase
+    # stuff unless it is already quoted
+    $source_name = uc ($source_name) if $source_name !~ /\"/;
   }
   else {
     $source_name = $source->name;
+    $source_name = uc($source_name) unless $ql;
   }
-  $source_name = uc($source_name) unless $sql_maker->quote_char;
 
   # trigger_body is a LONG
   local $dbh->{LongReadLen} = 64 * 1024 if ($dbh->{LongReadLen} < 64 * 1024);
@@ -78,29 +151,105 @@ sub _dbh_get_autoinc_seq {
   local $sql_maker->{bindtype} = 'normal';
 
   # look up the correct sequence automatically
-  my ( $schema, $table ) = $source_name =~ /(\w+)\.(\w+)/;
+  my ( $schema, $table ) = $source_name =~ /( (?:${ql})? \w+ (?:${qr})? ) \. ( (?:${ql})? \w+ (?:${qr})? )/x;
+
+  # if no explicit schema was requested - use the default schema (which in the case of Oracle is the db user)
+  $schema ||= uc( ($self->_dbi_connect_info||[])->[1] || '');
+
   my ($sql, @bind) = $sql_maker->select (
     'ALL_TRIGGERS',
-    ['trigger_body'],
+    [qw/TRIGGER_BODY TABLE_OWNER TRIGGER_NAME/],
     {
-      $schema ? (owner => $schema) : (),
-      table_name => $table || $source_name,
-      triggering_event => 'INSERT',
-      status => 'ENABLED',
+      $schema ? (OWNER => $schema) : (),
+      TABLE_NAME => $table || $source_name,
+      TRIGGERING_EVENT => { -like => '%INSERT%' },  # this will also catch insert_or_update
+      TRIGGER_TYPE => { -like => '%BEFORE%' },      # we care only about 'before' triggers
+      STATUS => 'ENABLED',
      },
   );
-  my $sth = $dbh->prepare($sql);
-  $sth->execute (@bind);
 
-  while (my ($insert_trigger) = $sth->fetchrow_array) {
-    return $1 if $insert_trigger =~ m!("?\w+"?)\.nextval!i; # col name goes here???
+  # to find all the triggers that mention the column in question a simple
+  # regex grep since the trigger_body above is a LONG and hence not searchable
+  my @triggers = ( map
+    { my %inf; @inf{qw/body schema name/} = @$_; \%inf }
+    ( grep
+      { $_->[0] =~ /\:new\.${ql}${col}${qr} | \:new\.$col/xi }
+      @{ $dbh->selectall_arrayref( $sql, {}, @bind ) }
+    )
+  );
+
+  # extract all sequence names mentioned in each trigger
+  for (@triggers) {
+    $_->{sequences} = [ $_->{body} =~ / ( "? [\.\w\"\-]+ "? ) \. nextval /xig ];
   }
-  $self->throw_exception("Unable to find a sequence INSERT trigger on table '$source_name'.");
+
+  my $chosen_trigger;
+
+  # if only one trigger matched things are easy
+  if (@triggers == 1) {
+
+    if ( @{$triggers[0]{sequences}} == 1 ) {
+      $chosen_trigger = $triggers[0];
+    }
+    else {
+      $self->throw_exception( sprintf (
+        "Unable to introspect trigger '%s' for column %s.%s (references multiple sequences). "
+      . "You need to specify the correct 'sequence' explicitly in '%s's column_info.",
+        $triggers[0]{name},
+        $source_name,
+        $col,
+        $col,
+      ) );
+    }
+  }
+  # got more than one matching trigger - see if we can narrow it down
+  elsif (@triggers > 1) {
+
+    my @candidates = grep
+      { $_->{body} =~ / into \s+ \:new\.$col /xi }
+      @triggers
+    ;
+
+    if (@candidates == 1 && @{$candidates[0]{sequences}} == 1) {
+      $chosen_trigger = $candidates[0];
+    }
+    else {
+      $self->throw_exception( sprintf (
+        "Unable to reliably select a BEFORE INSERT trigger for column %s.%s (possibilities: %s). "
+      . "You need to specify the correct 'sequence' explicitly in '%s's column_info.",
+        $source_name,
+        $col,
+        ( join ', ', map { "'$_->{name}'" } @triggers ),
+        $col,
+      ) );
+    }
+  }
+
+  if ($chosen_trigger) {
+    my $seq_name = $chosen_trigger->{sequences}[0];
+
+    $seq_name = "$chosen_trigger->{schema}.$seq_name"
+      unless $seq_name =~ /\./;
+
+    return \$seq_name if $seq_name =~ /\"/; # may already be quoted in-trigger
+    return $seq_name;
+  }
+
+  $self->throw_exception( sprintf (
+    "No suitable BEFORE INSERT triggers found for column %s.%s. "
+  . "You need to specify the correct 'sequence' explicitly in '%s's column_info.",
+    $source_name,
+    $col,
+    $col,
+  ));
 }
 
 sub _sequence_fetch {
   my ( $self, $type, $seq ) = @_;
-  my ($id) = $self->_get_dbh->selectrow_array("SELECT ${seq}.${type} FROM DUAL");
+
+  # use the maker to leverage quoting settings
+  my $sql_maker = $self->sql_maker;
+  my ($id) = $self->_get_dbh->selectrow_array ($sql_maker->select('DUAL', [ ref $seq ? \"$$seq.$type" : "$seq.$type" ] ) );
   return $id;
 }
 
@@ -110,46 +259,62 @@ sub _ping {
   my $dbh = $self->_dbh or return 0;
 
   local $dbh->{RaiseError} = 1;
+  local $dbh->{PrintError} = 0;
 
-  eval {
-    $dbh->do("select 1 from dual");
+  return try {
+    $dbh->do('select 1 from dual');
+    1;
+  } catch {
+    0;
   };
-
-  return $@ ? 0 : 1;
 }
 
 sub _dbh_execute {
   my $self = shift;
   my ($dbh, $op, $extra_bind, $ident, $bind_attributes, @args) = @_;
 
-  my $wantarray = wantarray;
+  my (@res, $tried);
+  my $want = wantarray;
+  my $next = $self->next::can;
+  do {
+    try {
+      my $exec = sub { $self->$next($dbh, $op, $extra_bind, $ident, $bind_attributes, @args) };
 
-  my (@res, $exception, $retried);
+      if (!defined $want) {
+        $exec->();
+      }
+      elsif (! $want) {
+        $res[0] = $exec->();
+      }
+      else {
+        @res = $exec->();
+      }
 
-  RETRY: {
-    do {
-      eval {
-        if ($wantarray) {
-          @res    = $self->next::method(@_);
-        } else {
-          $res[0] = $self->next::method(@_);
-        }
-      };
-      $exception = $@;
-      if ($exception =~ /ORA-01003/) {
+      $tried++;
+    }
+    catch {
+      if (! $tried and $_ =~ /ORA-01003/) {
         # ORA-01003: no statement parsed (someone changed the table somehow,
         # invalidating your cursor.)
         my ($sql, $bind) = $self->_prep_for_execute($op, $extra_bind, $ident, \@args);
         delete $dbh->{CachedKids}{$sql};
-      } else {
-        last RETRY;
       }
-    } while (not $retried++);
-  }
+      else {
+        $self->throw_exception($_);
+      }
+    };
+  } while (! $tried++);
 
-  $self->throw_exception($exception) if $exception;
+  return wantarray ? @res : $res[0];
+}
 
-  wantarray ? @res : $res[0]
+sub _dbh_execute_array {
+  #my ($self, $sth, $tuple_status, @extra) = @_;
+
+  # DBD::Oracle warns loudly on partial execute_array failures
+  local $_[1]->{PrintWarn} = 0;
+
+  shift->next::method(@_);
 }
 
 =head2 get_autoinc_seq
@@ -162,19 +327,6 @@ sub get_autoinc_seq {
   my ($self, $source, $col) = @_;
 
   $self->dbh_do('_dbh_get_autoinc_seq', $source, $col);
-}
-
-=head2 columns_info_for
-
-This wraps the superclass version of this method to force table
-names to uppercase
-
-=cut
-
-sub columns_info_for {
-  my ($self, $table) = @_;
-
-  $self->next::method($table);
 }
 
 =head2 datetime_parser_type
@@ -192,10 +344,10 @@ Used as:
 
     on_connect_call => 'datetime_setup'
 
-In L<DBIx::Class::Storage::DBI/connect_info> to set the session nls date, and
-timestamp values for use with L<DBIx::Class::InflateColumn::DateTime> and the
-necessary environment variables for L<DateTime::Format::Oracle>, which is used
-by it.
+In L<connect_info|DBIx::Class::Storage::DBI/connect_info> to set the session nls
+date, and timestamp values for use with L<DBIx::Class::InflateColumn::DateTime>
+and the necessary environment variables for L<DateTime::Format::Oracle>, which
+is used by it.
 
 Maximum allowable precision is used, unless the environment variables have
 already been set.
@@ -260,8 +412,8 @@ sub source_bind_attributes
   my %bind_attributes;
 
   foreach my $column ($source->columns) {
-    my $data_type = $source->column_info($column)->{data_type} || '';
-    next unless $data_type;
+    my $data_type = $source->column_info($column)->{data_type}
+      or next;
 
     my %column_bind_attrs = $self->bind_attribute_by_data_type($data_type);
 
@@ -319,25 +471,7 @@ sub relname_to_table_alias {
 
   my $alias = $self->next::method(@_);
 
-  return $alias if length($alias) <= 30;
-
-  # get a base64 md5 of the alias with join_count
-  require Digest::MD5;
-  my $ctx = Digest::MD5->new;
-  $ctx->add($alias);
-  my $md5 = $ctx->b64digest;
-
-  # remove alignment mark just in case
-  $md5 =~ s/=*\z//;
-
-  # truncate and prepend to truncated relname without vowels
-  (my $devoweled = $relname) =~ s/[aeiou]//g;
-  my $shortened = substr($devoweled, 0, 18);
-
-  my $new_alias =
-    $shortened . '_' . substr($md5, 0, 30 - length($shortened) - 1);
-
-  return $new_alias;
+  return $self->sql_maker->_shorten_identifier($alias, [$relname]);
 }
 
 =head2 with_deferred_fk_checks
@@ -360,14 +494,98 @@ sub with_deferred_fk_checks {
   my $txn_scope_guard = $self->txn_scope_guard;
 
   $self->_do_query('alter session set constraints = deferred');
-  
+
   my $sg = Scope::Guard->new(sub {
     $self->_do_query('alter session set constraints = immediate');
   });
 
-  return Context::Preserve::preserve_context(sub { $sub->() },
-    after => sub { $txn_scope_guard->commit });
+  return
+    preserve_context { $sub->() } after => sub { $txn_scope_guard->commit };
 }
+
+=head1 ATTRIBUTES
+
+Following additional attributes can be used in resultsets.
+
+=head2 connect_by or connect_by_nocycle
+
+=over 4
+
+=item Value: \%connect_by
+
+=back
+
+A hashref of conditions used to specify the relationship between parent rows
+and child rows of the hierarchy.
+
+
+  connect_by => { parentid => 'prior personid' }
+
+  # adds a connect by statement to the query:
+  # SELECT
+  #     me.persionid me.firstname, me.lastname, me.parentid
+  # FROM
+  #     person me
+  # CONNECT BY
+  #     parentid = prior persionid
+  
+
+  connect_by_nocycle => { parentid => 'prior personid' }
+
+  # adds a connect by statement to the query:
+  # SELECT
+  #     me.persionid me.firstname, me.lastname, me.parentid
+  # FROM
+  #     person me
+  # CONNECT BY NOCYCLE
+  #     parentid = prior persionid
+
+
+=head2 start_with
+
+=over 4
+
+=item Value: \%condition
+
+=back
+
+A hashref of conditions which specify the root row(s) of the hierarchy.
+
+It uses the same syntax as L<DBIx::Class::ResultSet/search>
+
+  start_with => { firstname => 'Foo', lastname => 'Bar' }
+
+  # SELECT
+  #     me.persionid me.firstname, me.lastname, me.parentid
+  # FROM
+  #     person me
+  # START WITH
+  #     firstname = 'foo' and lastname = 'bar'
+  # CONNECT BY
+  #     parentid = prior persionid
+
+=head2 order_siblings_by
+
+=over 4
+
+=item Value: ($order_siblings_by | \@order_siblings_by)
+
+=back
+
+Which column(s) to order the siblings by.
+
+It uses the same syntax as L<DBIx::Class::ResultSet/order_by>
+
+  'order_siblings_by' => 'firstname ASC'
+
+  # SELECT
+  #     me.persionid me.firstname, me.lastname, me.parentid
+  # FROM
+  #     person me
+  # CONNECT BY
+  #     parentid = prior persionid
+  # ORDER SIBLINGS BY
+  #     firstname ASC
 
 =head1 AUTHOR
 

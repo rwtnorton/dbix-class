@@ -1,13 +1,22 @@
 use strict;
-use warnings;  
+use warnings;
 
 use Test::More;
 use lib qw(t/lib);
+
+# inject IC::File into the result baseclass for testing
+BEGIN {
+  $ENV{DBIC_IC_FILE_NOWARN} = 1;
+  require DBICTest::BaseResult;
+  DBICTest::BaseResult->load_components (qw/InflateColumn::File/);
+}
+
+
 use DBICTest;
 use File::Compare;
 use Path::Class qw/file/;
 
-my $schema = DBICTest->init_schema();
+my $schema = DBICTest->init_schema;
 
 plan tests => 10;
 
@@ -61,6 +70,9 @@ $fc = $rs->find({ id => $fc->id });
 is ( $fc->file->{filename}, $new_fname, 'new filname matches' );
 ok ( compare($new_storage, $new_source_file) == 0, 'new content matches' );
 
+if ($^O =~ /win32|cygwin/i) {
+  close $fc->file->{handle}; # can't delete open files on Windows
+}
 $fc->delete;
 
 ok ( ! -e $storage, 'storage deleted' );

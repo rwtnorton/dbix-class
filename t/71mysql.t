@@ -1,5 +1,5 @@
 use strict;
-use warnings;  
+use warnings;
 
 use Test::More;
 use Test::Exception;
@@ -74,6 +74,26 @@ is( $it->next->name, "Artist 2", "iterator->next ok" );
 $it->next;
 $it->next;
 is( $it->next, undef, "next past end of resultset ok" );
+
+# Limit with select-lock
+lives_ok {
+  $schema->txn_do (sub {
+    isa_ok (
+      $schema->resultset('Artist')->find({artistid => 1}, {for => 'update', rows => 1}),
+      'DBICTest::Schema::Artist',
+    );
+  });
+} 'Limited FOR UPDATE select works';
+
+# shared-lock
+lives_ok {
+  $schema->txn_do (sub {
+    isa_ok (
+      $schema->resultset('Artist')->find({artistid => 1}, {for => 'shared'}),
+      'DBICTest::Schema::Artist',
+    );
+  });
+} 'LOCK IN SHARE MODE select works';
 
 my $test_type_info = {
     'artistid' => {
@@ -194,6 +214,29 @@ lives_ok { $cd->set_producers ([ $producer ]) } 'set_relationship doesnt die';
   );
 }
 
+{
+  # Test support for straight joins
+  my $cdsrc = $schema->source('CD');
+  my $artrel_info = $cdsrc->relationship_info ('artist');
+  $cdsrc->add_relationship(
+    'straight_artist',
+    $artrel_info->{class},
+    $artrel_info->{cond},
+    { %{$artrel_info->{attrs}}, join_type => 'straight' },
+  );
+  is_same_sql_bind (
+    $cdsrc->resultset->search({}, { prefetch => 'straight_artist' })->as_query,
+    '(
+      SELECT me.cdid, me.artist, me.title, me.year, me.genreid, me.single_track,
+             straight_artist.artistid, straight_artist.name, straight_artist.rank, straight_artist.charfield
+        FROM cd me
+        STRAIGHT_JOIN artist straight_artist ON straight_artist.artistid = me.artist
+    )',
+    [],
+    'straight joins correctly supported for mysql'
+  );
+}
+
 ## Can we properly deal with the null search problem?
 ##
 ## Only way is to do a SET SQL_AUTO_IS_NULL = 0; on connect
@@ -227,7 +270,10 @@ NULLINSEARCH: {
 
 # check for proper grouped counts
 {
-  my $ansi_schema = DBICTest::Schema->connect ($dsn, $user, $pass, { on_connect_call => 'set_strict_mode' });
+  my $ansi_schema = DBICTest::Schema->connect ($dsn, $user, $pass, {
+    on_connect_call => 'set_strict_mode',
+    quote_char => '`',
+  });
   my $rs = $ansi_schema->resultset('CD');
 
   my $years;
@@ -240,6 +286,14 @@ NULLINSEARCH: {
       'grouped count correct',
     );
   }, 'Grouped count does not throw');
+
+  lives_ok( sub {
+    $ansi_schema->resultset('Owners')->search({}, {
+      join => 'books', group_by => [ 'me.id', 'books.id' ]
+    })->count();
+  }, 'count on grouped columns with the same name does not throw');
+
+
 }
 
 ZEROINSEARCH: {
@@ -297,6 +351,6 @@ ZEROINSEARCH: {
 
 my $schema2 = DBICTest::Schema->connect($dsn, $user, $pass);
 $schema2->resultset("Artist")->find(4);
-isa_ok($schema2->storage->sql_maker, 'DBIx::Class::SQLAHacks::MySQL');
+isa_ok($schema2->storage->sql_maker, 'DBIx::Class::SQLMaker::MySQL');
 
 done_testing;
