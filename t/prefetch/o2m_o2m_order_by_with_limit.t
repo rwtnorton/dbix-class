@@ -34,7 +34,7 @@ is_same_sql_bind(
           JOIN cd cds_unordered
             ON cds_unordered.artist = me.artistid
         WHERE ( me.rank = ? )
-        ORDER BY me.name ASC, me.artistid DESC
+        ORDER BY tracks.position DESC, me.name ASC, me.artistid DESC
         LIMIT 3
         OFFSET 3
       ) cds_unordered
@@ -42,7 +42,7 @@ is_same_sql_bind(
       LEFT JOIN track tracks
         ON tracks.cd = cds_unordered.cdid
     WHERE ( me.rank = ? )
-    ORDER BY me.name ASC, me.artistid DESC, tracks.cd
+    ORDER BY tracks.position DESC, me.name ASC, me.artistid DESC
   )},
   [ [ 'me.rank' => 13 ], [ 'me.rank' => 13 ] ],
   'correct SQL on limited prefetch over search_related ordered by root',
