@@ -16,7 +16,7 @@ my $filtered_cd_rs = $artist_rs->search_related('cds_unordered',
   { "$ar.rank" => 13 },
   {
     prefetch => [ 'tracks' ],
-    order_by => [ { -asc => "$ar.name" }, "$ar.artistid DESC" ],
+    order_by => [ { -asc => "$ar.name" }, "$ar.artistid DESC", 'tracks.position DESC' ],
     offset   => 3,
     rows     => 3,
   },
@@ -55,6 +55,7 @@ is_same_sql_bind(
 # one, so the first 3 cds belong to the first artist and the fourth and fifth
 # cds belong to the second and third artist, respectively, and there's no sixth
 # row
+use Data::Dumper; $Data::Dumper::Indent = 1; $Data::Dumper::Maxdepth = 2; warn Dumper $filtered_cd_rs->hri_dump;
 is_deeply (
   [ $filtered_cd_rs->hri_dump ],
   [
@@ -69,9 +70,9 @@ is_deeply (
           'cd' => '4',
           'last_updated_at' => undef,
           'last_updated_on' => undef,
-          'position' => '1',
-          'title' => 'Boring Name',
-          'trackid' => '10'
+          'position' => '3',
+          'title' => 'No More Ideas',
+          'trackid' => '12'
         },
         {
           'cd' => '4',
@@ -85,9 +86,9 @@ is_deeply (
           'cd' => '4',
           'last_updated_at' => undef,
           'last_updated_on' => undef,
-          'position' => '3',
-          'title' => 'No More Ideas',
-          'trackid' => '12'
+          'position' => '1',
+          'title' => 'Boring Name',
+          'trackid' => '10'
         }
       ],
       'year' => '2001'
@@ -103,14 +104,6 @@ is_deeply (
           'cd' => '5',
           'last_updated_at' => undef,
           'last_updated_on' => undef,
-          'position' => '1',
-          'title' => 'Sad',
-          'trackid' => '13'
-        },
-        {
-          'cd' => '5',
-          'last_updated_at' => undef,
-          'last_updated_on' => undef,
           'position' => '3',
           'title' => 'Suicidal',
           'trackid' => '15'
@@ -122,6 +115,14 @@ is_deeply (
           'position' => '2',
           'title' => 'Under The Weather',
           'trackid' => '14'
+        },
+        {
+          'cd' => '5',
+          'last_updated_at' => undef,
+          'last_updated_on' => undef,
+          'position' => '1',
+          'title' => 'Sad',
+          'trackid' => '13'
         }
       ],
       'year' => '1998'
