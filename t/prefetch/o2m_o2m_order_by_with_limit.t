@@ -16,8 +16,8 @@ my $filtered_cd_rs = $artist_rs->search_related('cds_unordered',
   { "$ar.rank" => 13 },
   {
     prefetch => [ 'tracks' ],
-    order_by => [ { -asc => "$ar.name" }, "$ar.artistid DESC", 'tracks.position DESC' ],
-    offset   => 3,
+    order_by => [ 'tracks.position DESC', { -asc => "$ar.name" }, "$ar.artistid DESC" ],
+    offset   => 13,
     rows     => 3,
   },
 );
@@ -55,7 +55,6 @@ is_same_sql_bind(
 # one, so the first 3 cds belong to the first artist and the fourth and fifth
 # cds belong to the second and third artist, respectively, and there's no sixth
 # row
-use Data::Dumper; $Data::Dumper::Indent = 1; $Data::Dumper::Maxdepth = 2; warn Dumper $filtered_cd_rs->hri_dump;
 is_deeply (
   [ $filtered_cd_rs->hri_dump ],
   [

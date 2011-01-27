@@ -1249,8 +1249,7 @@ sub _construct_objects {
   my $inflator = $res_class->can ('inflate_result')
     or $self->throw_exception ("Result class '$res_class' is missing an inflate_result() method");
 
-  my @objs =
-    $res_class->$inflator ($rsrc, @$mepref_structs);
+  my @objs = map { $res_class->$inflator($rsrc, @$_) } @$mepref_structs;
 
   if (my $f = $attrs->{record_filter}) {
     @objs = map { $f->($_) } @objs;
@@ -1264,35 +1263,34 @@ sub _collapse_result {
   my ( $self, $as_proto, $row_ref, $keep_collapsing ) = @_;
   my $collapse = $self->_resolved_attrs->{collapse};
   my $parser   = $self->result_source->_mk_row_parser( $as_proto, $collapse );
-  my $result   = [];
   my $register = {};
-  my $rel_register = {};
+  my @results = ();
 
   my @row = @$row_ref;
   do {
     my $row = $parser->( \@row );
+    return [$row] unless ($collapse);
+    if (my $result = $self->_check_register( $register, $row )) {
+        $self->_merge_result( $result, $row );
+    } else {
+      $self->_merge_result( $row, [{},{},[]] );
+      push(@results, $row);
+    }
 
-    # init register
-    $self->_check_register( $register, $row ) unless ( keys %$register );
-
-    $self->_merge_result( $result, $row, $rel_register )
-      if ( !$collapse
-      || ( $collapse = $self->_check_register( $register, $row ) ) );
-
-    } while (
+  } while (
     $collapse
     && do { @row = $self->cursor->next; $self->{stashed_row} = \@row if @row; }
-
-  # run this as long as there is a next row and we are not yet done collapsing
-    );
-  return $result;
+  );
+  return \@results;
 }
+
 
 
 
 # Taubenschlag
 sub _check_register {
   my ( $self, $register, $obj ) = @_;
+  $obj->[3] ||= {};
   return undef unless ( ref $obj eq 'ARRAY' && ref $obj->[2] eq 'ARRAY' );
   my @ids = @{ $obj->[2] };
   while ( defined( my $id = shift @ids ) ) {
@@ -1305,28 +1303,22 @@ sub _check_register {
 
 
 sub _merge_result {
-  my ( $self, $result, $row, $register ) = @_;
-  return @$result = @$row if ( @$result == 0 );  # initialize with $row
-
-  my ( undef, $rels,   $ids )   = @$result;
+  my ( $self, $result, $row ) = @_;
+  my ( undef, $rels,   $ids, $register ) = @$result;
   my ( undef, $new_rels, $new_ids ) = @$row;
-
   use List::MoreUtils;
   my @rels = List::MoreUtils::uniq( keys %$rels, keys %$new_rels );
   foreach my $rel (@rels) {
-    $register = $register->{$rel} ||= {};
-
+    my $reg = $register->{$rel} ||= {};
     my $new_data = $new_rels->{$rel};
     my $data   = $rels->{$rel};
     @$data = [@$data] unless ( ref $data->[0] eq 'ARRAY' );
+    next unless($new_data);
+    $self->_check_register( $reg, $data->[0] );
 
-    $self->_check_register( $register, $data->[0] )
-      unless ( keys %$register );
-
-    if ( my $found = $self->_check_register( $register, $new_data ) ) {
-      $self->_merge_result( $found, $new_data, $register );
-    }
-    else {
+    if ( my $found = $self->_check_register( $reg, $new_data ) ) {
+      $self->_merge_result( $found, $new_data );
+    } else {
       push( @$data, $new_data );
     }
   }
