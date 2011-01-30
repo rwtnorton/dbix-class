@@ -125,10 +125,8 @@ sub new {
     { regex => qr/^ func  $/ix, handler => '_where_op_FUNC'  },
     { regex => qr/^ op    $/ix, handler => '_where_op_OP'    },
     { regex => qr/^ dt    $/xi, handler => '_where_op_CONVERT_DATETIME' },
-    { regex => qr/^ dt_day_of_month $/xi, handler => '_where_op_GET_DATETIME_MDAY' },
-    { regex => qr/^ dt_month $/xi, handler => '_where_op_GET_DATETIME_MONTH' },
-    { regex => qr/^ dt_year  $/xi, handler => '_where_op_GET_DATETIME_YEAR' },
-    { regex => qr/^ dt_diff_year  $/xi, handler => '_where_op_DIFF_DATETIME_YEAR' },
+    { regex => qr/^ dt_get $/xi, handler => '_where_op_GET_DATETIME' },
+    { regex => qr/^ dt_diff $/xi, handler => '_where_op_DIFF_DATETIME' },
   );
 
   push @{$self->{special_ops}}, @extra_dbic_syntax;
@@ -182,45 +180,39 @@ sub _where_op_CONVERT_DATETIME {
   ;
 }
 
-sub _where_op_GET_DATETIME_MDAY {
+sub _where_op_GET_DATETIME {
   my $self = shift;
   my ($op, $rhs) = splice @_, -2;
 
   my $lhs = shift;
 
-  $rhs = $$rhs; # hardcode scalarref for sketching
-  return "STRFTIME('d', $rhs)"
+  my $part = $rhs->[0];
+  my $col  = ${$rhs->[1]}; # hardcode scalarref for sketching
+
+  my %part_map = (
+     month        => 'm',
+     day_of_month => 'd',
+     year         => 'Y',
+  );
+  return "STRFTIME('$part_map{$part}', $col)"
 }
 
-sub _where_op_DIFF_DATETIME_YEAR {
+sub _where_op_DIFF_DATETIME {
   my $self = shift;
   my ($op, $rhs) = splice @_, -2;
 
   my $lhs = shift;
 
-  my $l = ${$rhs->[0]}; # hardcode scalarref for sketching
-  my $r = ${$rhs->[1]}; # hardcode scalarref for sketching
-  return "(STRFTIME('Y', $l) - STRFTIME('Y', $r))"
-}
+  my $part = $rhs->[0];
+  my $lcol  = ${$rhs->[1]}; # hardcode scalarref for sketching
+  my $rcol  = ${$rhs->[2]}; # hardcode scalarref for sketching
 
-sub _where_op_GET_DATETIME_MONTH {
-  my $self = shift;
-  my ($op, $rhs) = splice @_, -2;
-
-  my $lhs = shift;
-
-  $rhs = $$rhs; # hardcode scalarref for sketching
-  return "STRFTIME('m', $rhs)"
-}
-
-sub _where_op_GET_DATETIME_YEAR {
-  my $self = shift;
-  my ($op, $rhs) = splice @_, -2;
-
-  my $lhs = shift;
-
-  $rhs = $$rhs; # hardcode scalarref for sketching
-  return "STRFTIME('Y', $rhs)"
+  my %part_map = (
+     month        => 'm',
+     day_of_month => 'd',
+     year         => 'Y',
+  );
+  return "(STRFTIME('$part_map{$part}', $lcol) - STRFTIME('$part_map{$part}', $rcol))"
 }
 
 sub _where_op_VALUE {
