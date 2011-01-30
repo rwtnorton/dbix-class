@@ -101,6 +101,12 @@ BEGIN {
   }
 }
 
+# for some reason the stuff taken from Storage::DBI wouldn't work
+use DateTime::Format::MySQL;
+sub datetime_parser {
+   DateTime::Format::MySQL->new
+}
+
 # the "oh noes offset/top without limit" constant
 # limited to 32 bits for sanity (and consistency,
 # since it is ultimately handed to sprintf %u)
@@ -118,6 +124,7 @@ sub new {
     { regex => qr/^ value $/xi, handler => '_where_op_VALUE' },
     { regex => qr/^ func  $/ix, handler => '_where_op_FUNC'  },
     { regex => qr/^ op    $/ix, handler => '_where_op_OP'    },
+    { regex => qr/^ dt    $/xi, handler => '_where_op_CONVERT_DATETIME' },
   );
 
   push @{$self->{special_ops}}, @extra_dbic_syntax;
@@ -141,6 +148,33 @@ sub _where_op_IDENT {
   return $lhs
     ? "$lhs = $rhs"
     : $rhs
+  ;
+}
+
+sub _where_op_CONVERT_DATETIME {
+  my $self = shift;
+  my ($op, $rhs) = splice @_, -2;
+  croak "-$op takes a DateTime only" unless ref $rhs  && $rhs->isa('DateTime');
+
+  # in case we are called as a top level special op (no '=')
+  my $lhs = shift;
+
+  $rhs = $self->datetime_parser->format_datetime($rhs);
+
+  my @bind = [
+    ($lhs || $self->{_nested_func_lhs} || croak "Unable to find bindtype for -value $rhs"),
+    $rhs
+  ];
+
+  return $lhs
+    ? (
+      $self->_convert($self->_quote($lhs)) . ' = ' . $self->_convert('?'),
+      @bind
+    )
+    : (
+      $self->_convert('?'),
+      @bind
+    )
   ;
 }
 
