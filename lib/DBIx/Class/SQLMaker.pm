@@ -183,20 +183,51 @@ sub _where_op_CONVERT_DATETIME {
 }
 
 sub _where_op_GET_DATETIME {
-  my $self = shift;
-  my ($op, $rhs) = splice @_, -2;
+  my ($self) = @_;
 
-  my $lhs = shift;
+  my ($k, $op, $vals);
 
-  my $part = $rhs->[0];
-  my $col  = ${$rhs->[1]}; # hardcode scalarref for sketching
+  if (@_ == 3) {
+     $op = $_[1];
+     $vals = $_[2];
+     $k = '';
+  } elsif (@_ == 4) {
+     $k = $_[1];
+     $op = $_[2];
+     $vals = $_[3];
+  }
+
+  croak 'args to -dt_get must be an arrayref' unless ref $vals eq 'ARRAY';
+  croak 'first arg to -dt_get must be a scalar' unless !ref $vals->[0];
+
+  my $part = $vals->[0];
+  my $val  = $vals->[1];
 
   my %part_map = (
      month        => 'm',
      day_of_month => 'd',
      year         => 'Y',
   );
-  return "STRFTIME('$part_map{$part}', $col)"
+
+  my ($sql, @bind) = $self->_SWITCH_refkind($val, {
+     SCALAR => sub {
+       return ($self->_convert('?'), $self->_bindtype($k, $val) );
+     },
+     SCALARREF => sub {
+       return $$val;
+     },
+     ARRAYREFREF => sub {
+       my ($sql, @bind) = @$$val;
+       $self->_assert_bindval_matches_bindtype(@bind);
+       return ($sql, @bind);
+     },
+     HASHREF => sub {
+       my $method = $self->_METHOD_FOR_refkind("_where_hashpair", $val);
+       $self->$method('', $val);
+     }
+  });
+
+  return "STRFTIME('$part_map{$part}', $sql)", @bind;
 }
 
 for my $part (qw(month day year)) {
