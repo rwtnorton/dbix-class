@@ -125,6 +125,9 @@ sub new {
     { regex => qr/^ func  $/ix, handler => '_where_op_FUNC'  },
     { regex => qr/^ op    $/ix, handler => '_where_op_OP'    },
     { regex => qr/^ dt    $/xi, handler => '_where_op_CONVERT_DATETIME' },
+    { regex => qr/^ dt_day_of_month $/xi, handler => '_where_op_GET_DATETIME_MDAY' },
+    { regex => qr/^ dt_month $/xi, handler => '_where_op_GET_DATETIME_MONTH' },
+    { regex => qr/^ dt_year  $/xi, handler => '_where_op_GET_DATETIME_YEAR' },
   );
 
   push @{$self->{special_ops}}, @extra_dbic_syntax;
@@ -176,6 +179,36 @@ sub _where_op_CONVERT_DATETIME {
       @bind
     )
   ;
+}
+
+sub _where_op_GET_DATETIME_MDAY {
+  my $self = shift;
+  my ($op, $rhs) = splice @_, -2;
+
+  my $lhs = shift;
+
+  $rhs = $$rhs; # hardcode scalarref for sketching
+  return "STRFTIME('d', $rhs)"
+}
+
+sub _where_op_GET_DATETIME_MONTH {
+  my $self = shift;
+  my ($op, $rhs) = splice @_, -2;
+
+  my $lhs = shift;
+
+  $rhs = $$rhs; # hardcode scalarref for sketching
+  return "STRFTIME('m', $rhs)"
+}
+
+sub _where_op_GET_DATETIME_YEAR {
+  my $self = shift;
+  my ($op, $rhs) = splice @_, -2;
+
+  my $lhs = shift;
+
+  $rhs = $$rhs; # hardcode scalarref for sketching
+  return "STRFTIME('Y', $rhs)"
 }
 
 sub _where_op_VALUE {
