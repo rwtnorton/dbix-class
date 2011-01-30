@@ -19,6 +19,7 @@ sub _rno_default_order {
   );
 
   sub _datetime_sql { "DATEPART('$part_map{$_[1]}', $_[2])" }
+  sub _datetime_diff_sql { "DATEDIFF('$part_map{$_[1]}', $_[2], $_[3])" }
 }
 
 
