@@ -128,6 +128,7 @@ sub new {
     { regex => qr/^ dt_day_of_month $/xi, handler => '_where_op_GET_DATETIME_MDAY' },
     { regex => qr/^ dt_month $/xi, handler => '_where_op_GET_DATETIME_MONTH' },
     { regex => qr/^ dt_year  $/xi, handler => '_where_op_GET_DATETIME_YEAR' },
+    { regex => qr/^ dt_diff_year  $/xi, handler => '_where_op_DIFF_DATETIME_YEAR' },
   );
 
   push @{$self->{special_ops}}, @extra_dbic_syntax;
@@ -189,6 +190,17 @@ sub _where_op_GET_DATETIME_MDAY {
 
   $rhs = $$rhs; # hardcode scalarref for sketching
   return "STRFTIME('d', $rhs)"
+}
+
+sub _where_op_DIFF_DATETIME_YEAR {
+  my $self = shift;
+  my ($op, $rhs) = splice @_, -2;
+
+  my $lhs = shift;
+
+  my $l = ${$rhs->[0]}; # hardcode scalarref for sketching
+  my $r = ${$rhs->[1]}; # hardcode scalarref for sketching
+  return "(STRFTIME('Y', $l) - STRFTIME('Y', $r))"
 }
 
 sub _where_op_GET_DATETIME_MONTH {
