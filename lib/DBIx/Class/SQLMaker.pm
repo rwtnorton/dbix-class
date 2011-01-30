@@ -127,6 +127,8 @@ sub new {
     { regex => qr/^ dt    $/xi, handler => '_where_op_CONVERT_DATETIME' },
     { regex => qr/^ dt_get $/xi, handler => '_where_op_GET_DATETIME' },
     { regex => qr/^ dt_diff $/xi, handler => '_where_op_DIFF_DATETIME' },
+    map +{ regex => qr/^ dt_$_ $/xi, handler => '_where_op_GET_DATETIME_'.uc($_) },
+      qw(year month day)
   );
 
   push @{$self->{special_ops}}, @extra_dbic_syntax;
@@ -195,6 +197,19 @@ sub _where_op_GET_DATETIME {
      year         => 'Y',
   );
   return "STRFTIME('$part_map{$part}', $col)"
+}
+
+for my $part (qw(month day year)) {
+   no strict 'refs';
+   my $name = '_where_op_GET_DATETIME_' . uc($part);
+   *{$name} = subname "DBIx::Class::SQLMaker::$name", sub {
+     my $self = shift;
+     my ($op, $rhs) = splice @_, -2;
+
+     my $lhs = shift;
+
+     return $self->_where_op_GET_DATETIME($op, $lhs, [$part, $rhs])
+   }
 }
 
 sub _where_op_DIFF_DATETIME {
