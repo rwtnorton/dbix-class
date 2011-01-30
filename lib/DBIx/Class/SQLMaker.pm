@@ -192,6 +192,15 @@ sub _where_op_CONVERT_DATETIME {
   sub _datetime_sql { "STRFTIME('$part_map{$_[1]}', $_[2])" }
 }
 
+sub _datetime_diff_sql {
+   my ($self, $part, $left, $right) = @_;
+   '(' .
+      $self->_datetime_sql($part, $left)
+       . ' - ' .
+      $self->_datetime_sql($part, $right)
+   . ')'
+}
+
 sub _where_op_GET_DATETIME {
   my ($self) = @_;
 
@@ -292,12 +301,7 @@ sub _where_op_DIFF_DATETIME {
     push @all_bind, @bind;
   }
 
-  my %part_map = (
-     month        => 'm',
-     day_of_month => 'd',
-     year         => 'Y',
-  );
-  return "(STRFTIME('$part_map{$part}', $all_sql[0]) - STRFTIME('$part_map{$part}', $all_sql[1]))"
+  return $self->_datetime_diff_sql($part, $all_sql[0], $all_sql[1]), @all_bind
 }
 
 sub _where_op_VALUE {
