@@ -48,4 +48,27 @@ is_same_sql_bind (
   ],
 );
 
+is_same_sql_bind (
+  \[ $sql_maker->select ('artist', '*', {
+    -and => [
+       { -op => [ '=', 12, { -dt_month => \'artist.when_began' } ] },
+       { -op => [ '=', 2010, { -dt_year => \'artist.when_began' } ] },
+       { -op => [ '=', 14, { -dt_day_of_month => \'artist.when_began' } ] },
+    ]
+  } ) ],
+  "SELECT *
+     FROM artist
+     WHERE ( (
+       ( ? = STRFTIME('m', artist.when_began) ) AND
+       ( ? = STRFTIME('Y', artist.when_began) ) AND
+       ( ? = STRFTIME('d', artist.when_began) )
+     ) )
+  ",
+  [
+   ['', 12],
+   ['', 2010],
+   ['', 14],
+  ],
+);
+
 done_testing;
