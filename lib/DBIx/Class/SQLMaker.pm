@@ -182,6 +182,16 @@ sub _where_op_CONVERT_DATETIME {
   ;
 }
 
+{
+  my %part_map = (
+     month        => 'm',
+     day_of_month => 'd',
+     year         => 'Y',
+  );
+
+  sub _datetime_sql { "STRFTIME('$part_map{$_[1]}', $_[2])" }
+}
+
 sub _where_op_GET_DATETIME {
   my ($self) = @_;
 
@@ -203,12 +213,6 @@ sub _where_op_GET_DATETIME {
   my $part = $vals->[0];
   my $val  = $vals->[1];
 
-  my %part_map = (
-     month        => 'm',
-     day_of_month => 'd',
-     year         => 'Y',
-  );
-
   my ($sql, @bind) = $self->_SWITCH_refkind($val, {
      SCALAR => sub {
        return ($self->_convert('?'), $self->_bindtype($k, $val) );
@@ -227,7 +231,7 @@ sub _where_op_GET_DATETIME {
      }
   });
 
-  return "STRFTIME('$part_map{$part}', $sql)", @bind;
+  return $self->_datetime_sql($part, $sql), @bind;
 }
 
 for my $part (qw(month day year)) {
