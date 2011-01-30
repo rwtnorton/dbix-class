@@ -51,7 +51,7 @@ is_same_sql_bind (
 is_same_sql_bind (
   \[ $sql_maker->select ('artist', '*', {
     -and => [
-       { -op => [ '=', 12, { -dt_month => \'artist.when_began' } ] },
+       { -op => [ '=', 12, { -dt_month => { -ident => 'artist.when_began' } } ] },
        { -op => [ '=', 2010, { -dt_get => [year => \'artist.when_began'] } ] },
        { -op => [ '=', 14, { -dt_get => [day_of_month => \'artist.when_began'] } ] },
        { -op => [ '=', 10, { -dt_diff => [year => \'artist.when_began', \'artist.when_ended'] } ] },
