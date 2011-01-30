@@ -54,6 +54,7 @@ is_same_sql_bind (
        { -op => [ '=', 12, { -dt_month => \'artist.when_began' } ] },
        { -op => [ '=', 2010, { -dt_year => \'artist.when_began' } ] },
        { -op => [ '=', 14, { -dt_day_of_month => \'artist.when_began' } ] },
+       { -op => [ '=', 10, { -dt_diff_year => [\'artist.when_began', \'artist.when_ended'] } ] },
     ]
   } ) ],
   "SELECT *
@@ -61,14 +62,20 @@ is_same_sql_bind (
      WHERE ( (
        ( ? = STRFTIME('m', artist.when_began) ) AND
        ( ? = STRFTIME('Y', artist.when_began) ) AND
-       ( ? = STRFTIME('d', artist.when_began) )
+       ( ? = STRFTIME('d', artist.when_began) ) AND
+       ( ? = ( STRFTIME('Y', artist.when_began) - STRFTIME('Y', artist.when_ended)))
      ) )
   ",
   [
    ['', 12],
    ['', 2010],
    ['', 14],
+   ['', 10],
   ],
 );
+
+# I'm pretty sure we should have just
+#  -dt_get => ['month', \'me.foo'] instead of -dt_month => \'me.foo'
+#  -dt_diff => ['month', \'me.foo'] instead of -dt_diff_month => \'me.foo'
 
 done_testing;
