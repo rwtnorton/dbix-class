@@ -54,7 +54,7 @@ is_same_sql_bind (
        { -op => [ '=', 12, { -dt_month => { -ident => 'artist.when_began' } } ] },
        { -op => [ '=', 2010, { -dt_get => [year => \'artist.when_began'] } ] },
        { -op => [ '=', 14, { -dt_get => [day_of_month => \'artist.when_began'] } ] },
-       { -op => [ '=', 10, { -dt_diff => [year => \'artist.when_began', \'artist.when_ended'] } ] },
+       { -op => [ '=', 10, { -dt_diff => [year => { -ident => 'artist.when_began' }, \'artist.when_ended'] } ] },
     ]
   } ) ],
   "SELECT *

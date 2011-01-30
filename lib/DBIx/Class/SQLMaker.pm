@@ -248,21 +248,56 @@ for my $part (qw(month day year)) {
 }
 
 sub _where_op_DIFF_DATETIME {
-  my $self = shift;
-  my ($op, $rhs) = splice @_, -2;
+  my ($self) = @_;
 
-  my $lhs = shift;
+  my ($k, $op, $vals);
 
-  my $part = $rhs->[0];
-  my $lcol  = ${$rhs->[1]}; # hardcode scalarref for sketching
-  my $rcol  = ${$rhs->[2]}; # hardcode scalarref for sketching
+  if (@_ == 3) {
+     $op = $_[1];
+     $vals = $_[2];
+     $k = '';
+  } elsif (@_ == 4) {
+     $k = $_[1];
+     $op = $_[2];
+     $vals = $_[3];
+  }
+
+  croak 'args to -dt_diff must be an arrayref' unless ref $vals eq 'ARRAY';
+  croak 'first arg to -dt_diff must be a scalar' unless !ref $vals->[0];
+  croak '-dt_diff must have two more arguments' unless scalar @$vals == 3;
+
+  my ($part, @val) = @$vals;
+  my $placeholder = $self->_convert('?');
+
+  my (@all_sql, @all_bind);
+  foreach my $val (@val) {
+    my ($sql, @bind) = $self->_SWITCH_refkind($val, {
+       SCALAR => sub {
+         return ($placeholder, $self->_bindtype($k, $val) );
+       },
+       SCALARREF => sub {
+         return $$val;
+       },
+       ARRAYREFREF => sub {
+         my ($sql, @bind) = @$$val;
+         $self->_assert_bindval_matches_bindtype(@bind);
+         return ($sql, @bind);
+       },
+       HASHREF => sub {
+         my $method = $self->_METHOD_FOR_refkind("_where_hashpair", $val);
+         $self->$method('', $val);
+       }
+    });
+    push @all_sql, $sql;
+    push @all_bind, @bind;
+  }
 
   my %part_map = (
      month        => 'm',
      day_of_month => 'd',
      year         => 'Y',
   );
-  return "(STRFTIME('$part_map{$part}', $lcol) - STRFTIME('$part_map{$part}', $rcol))"
+  return "(STRFTIME('$part_map{$part}', $all_sql[0]) - STRFTIME('$part_map{$part}', $all_sql[1]))"
 }
 
 sub _where_op_VALUE {
