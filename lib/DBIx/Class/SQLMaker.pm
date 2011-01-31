@@ -70,7 +70,7 @@ use Sub::Name 'subname';
 use Carp::Clan qw/^DBIx::Class|^SQL::Abstract|^Try::Tiny/;
 use namespace::clean;
 
-__PACKAGE__->mk_group_accessors (simple => qw/quote_char name_sep limit_dialect/);
+__PACKAGE__->mk_group_accessors (simple => qw/quote_char name_sep limit_dialect datetime_parser/);
 
 # for when I need a normalized l/r pair
 sub _quote_chars {
@@ -99,12 +99,6 @@ BEGIN {
         }
       };
   }
-}
-
-# for some reason the stuff taken from Storage::DBI wouldn't work
-use DateTime::Format::MySQL;
-sub datetime_parser {
-   DateTime::Format::MySQL->new
 }
 
 # the "oh noes offset/top without limit" constant
