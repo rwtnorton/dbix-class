@@ -251,7 +251,11 @@ sub _insert_returning {
      week_of_year     => 'WEEK_OF_YEAR',
   );
 
-  sub _datetime_sql { "$part_map{$_[1]}($_[2])" }
+  sub _datetime_sql {
+    die $_[0]->_unsupported_date_extraction($_[1], 'Oracle')
+       unless exists $part_map{$_[1]};
+    "$part_map{$_[1]}($_[2])"
+  }
 }
 
 {
@@ -266,6 +270,10 @@ sub _insert_returning {
      year        => 'SQL_TSI_YEAR',
   );
 
-  sub _datetime_diff_sql { "TIMESTAMPDIFF($part_map{$_[1]}, $_[2], $_[3])" }
+  sub _datetime_diff_sql {
+    die $_[0]->_unsupported_date_diff($_[1], 'Oracle')
+       unless exists $part_map{$_[1]};
+    "TIMESTAMPDIFF($part_map{$_[1]}, $_[2], $_[3])"
+  }
 }
 1;
