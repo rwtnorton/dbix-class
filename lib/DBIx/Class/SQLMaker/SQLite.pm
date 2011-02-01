@@ -17,16 +17,18 @@ sub _lock_select () { '' };
      year         => 'Y',
   );
 
-  sub _datetime_sql { "STRFTIME('$part_map{$_[1]}', $_[2])" }
+  sub _datetime_sql { "STRFTIME('%$part_map{$_[1]}', $_[2])" }
 }
 
 sub _datetime_diff_sql {
    my ($self, $part, $left, $right) = @_;
-   '(' .
-      $self->_datetime_sql($part, $left)
-       . ' - ' .
-      $self->_datetime_sql($part, $right)
-   . ')'
+   if ($part eq 'day') {
+      return "(JULIANDAY($left) - JULIANDAY($right))"
+   } elsif ($part eq 'second') {
+      return "(STRFTIME('%s',$left) - STRFTIME('%s',$right))"
+   } else {
+      die "part $part is not supported by SQLite"
+   }
 }
 
 1;
