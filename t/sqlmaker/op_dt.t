@@ -74,8 +74,4 @@ is_same_sql_bind (
   ],
 );
 
-# I'm pretty sure we should have just
-#  -dt_get => ['month', \'me.foo'] instead of -dt_month => \'me.foo'
-#  -dt_diff => ['month', \'me.foo'] instead of -dt_diff_month => \'me.foo'
-
 done_testing;
