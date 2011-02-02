@@ -1641,6 +1641,10 @@ sub _dbh_execute {
       if ($ref and overload::Method($data, '""') ) {
         $data = "$data";
       }
+      elsif (!defined $column_name) {
+         $sth->bind_param($placeholder_index++, $data);
+         next;
+      }
       elsif ($ref eq 'SCALAR') {  # any scalarrefs are assumed to be bind_inouts
         $sth->bind_param_inout(
           $placeholder_index++,
