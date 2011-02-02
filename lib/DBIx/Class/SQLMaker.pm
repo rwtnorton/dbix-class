@@ -495,7 +495,10 @@ sub _recurse_fields {
     return join(', ', map { $self->_recurse_fields($_, $depth + 1) } @$fields)
       if $depth != 1;
 
-    return $self->_recurse_where({@$fields})
+    my ($sql, @bind) = $self->_recurse_where({@$fields});
+
+    push @{$self->{select_bind}}, @bind;
+    return $sql;
   }
   elsif ($ref eq 'HASH') {
     my %hash = %$fields;  # shallow copy
