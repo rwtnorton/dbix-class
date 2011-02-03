@@ -65,6 +65,8 @@ sub _datetime_diff_sql {
    }
 }
 
+sub _datetime_now_sql { "datetime('now')" }
+
 =head1 DATE FUNCTION IMPLEMENTATION
 
 The function used to extract date information is C<STRFTIME>, which supports

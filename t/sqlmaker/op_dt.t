@@ -33,8 +33,10 @@ Dwarn [$schema->resultset('Artist')->search(undef, {
       [ -dt_diff => [day    => { -dt => $date }, { -dt => $date2 }] ],
       [ -dt_add => [minute => 3, { -dt => $date }] ],
       [ -dt_add => [minute => 3, { -dt_add => [ hour => 1, { -dt => $date } ] } ] ],
+      [ -dt_now => [] ],
+      [ -dt_now => ['local'] ],
    ],
-   as => [qw(seconds days date date2)],
+   as => [qw(seconds days date date2 now now_local)],
    result_class => 'DBIx::Class::ResultClass::HashRefInflator',
    rows => 1,
 })->all];
