@@ -1648,10 +1648,10 @@ sub _dbh_execute {
     my $attributes = {};
     my($column_name, @data) = @$bound;
 
-    if ($bind_attributes) {
-      $attributes = $bind_attributes->{$column_name}
-      if defined $bind_attributes->{$column_name};
-    }
+   $attributes = $bind_attributes->{$column_name}
+      if defined $column_name &&
+         defined $bind_attributes &&
+         defined $bind_attributes->{$column_name};
 
     foreach my $data (@data) {
       my $ref = ref $data;
