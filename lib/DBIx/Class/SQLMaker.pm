@@ -177,6 +177,7 @@ sub new {
     { regex => qr/^ dt_get $/xi, handler => '_where_op_GET_DATETIME' },
     { regex => qr/^ dt_diff $/xi, handler => '_where_op_DIFF_DATETIME' },
     { regex => qr/^ dt_add  $/xi, handler => '_where_op_ADD_DATETIME' },
+    { regex => qr/^ dt_now  $/xi, handler => '_where_op_DATETIME_NOW' },
     map +{ regex => qr/^ dt_$_ $/xi, handler => '_where_op_GET_DATETIME_'.uc($_) },
       qw(year month day hour minute second)
   );
@@ -302,6 +303,32 @@ for my $part (qw(month day year hour minute second)) {
 
      return $self->_where_op_GET_DATETIME($op, $lhs, [$part, $rhs])
    }
+}
+
+sub _where_op_DATETIME_NOW {
+  my ($self) = @_;
+
+  my ($k, $op, $vals);
+
+  if (@_ == 3) {
+     $op = $_[1];
+     $vals = $_[2];
+     $k = '';
+  } elsif (@_ == 4) {
+     $k = $_[1];
+     $op = $_[2];
+     $vals = $_[3];
+  }
+
+  croak "args to -$op must be an arrayref" unless ref $vals eq 'ARRAY';
+  if (!exists $vals->[0]) {
+     return $self->_datetime_now_sql()
+  } elsif ($vals->[0] eq 'local') {
+     require DateTime;
+     return $self->_where_op_CONVERT_DATETIME('dt', DateTime->now);
+  } else {
+     croak "first arg to -$op must be a 'local' or non-existant"
+  }
 }
 
 sub _where_op_ADD_DATETIME {
