@@ -75,6 +75,7 @@ is_same_sql_bind (
        { -op => [ '=', 14, { -dt_get => [day_of_month => \'artist.when_began'] } ] },
        { -op => [ '=', 100, { -dt_diff => [second => { -ident => 'artist.when_began' }, \'artist.when_ended'] } ] },
        { -op => [ '=', 10, { -dt_diff => [day => { -ident => 'artist.when_played_last' }, \'artist.when_ended'] } ] },
+       { -op => [ '=', { -dt_now => [] }, { -dt_add => [minute => 3, { -dt_add => [ hour => 1, { -dt_now => [] } ] } ] } ] },
     ]
   } ) ],
   "SELECT *
@@ -84,7 +85,8 @@ is_same_sql_bind (
        ( ? = STRFTIME('%Y', artist.when_began) ) AND
        ( ? = STRFTIME('%d', artist.when_began) ) AND
        ( ? = ( STRFTIME('%s', artist.when_began) - STRFTIME('%s', artist.when_ended))) AND
-       ( ? = ( JULIANDAY(artist.when_played_last) - JULIANDAY(artist.when_ended)))
+       ( ? = ( JULIANDAY(artist.when_played_last) - JULIANDAY(artist.when_ended))) AND
+       ( datetime('now') = (datetime((datetime(datetime('now'), ? || ' hours')), ? || ' minutes')))
      ) )
   ",
   [
@@ -93,6 +95,8 @@ is_same_sql_bind (
    ['', 14],
    ['', 100],
    ['', 10],
+   ['', 1],
+   ['', 3],
   ],
   '-dt_month, -dt_get, and -dt_diff work'
 );
