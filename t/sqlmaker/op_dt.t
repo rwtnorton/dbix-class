@@ -12,7 +12,9 @@ use_ok('DBICTest');
 
 my $schema = DBICTest->init_schema();
 
-my $sql_maker = $schema->storage->sql_maker;
+my %sql_maker = (
+   sqlite => $schema->storage->sql_maker,
+);
 
 my $date = DateTime->new(
    year => 2010,
@@ -29,8 +31,10 @@ my @tests = (
   {
     func   => 'select',
     args   => ['artist', '*', { 'artist.when_began' => { -dt => $date } }],
-    stmt   => 'SELECT * FROM artist WHERE artist.when_began = ?',
-    bind   => [[ 'artist.when_began', '2010-12-14 12:12:12' ]],
+    sqlite => {
+       stmt   => 'SELECT * FROM artist WHERE artist.when_began = ?',
+       bind   => [[ 'artist.when_began', '2010-12-14 12:12:12' ]],
+    },
     msg => '-dt_now works',
   },
   {
@@ -39,154 +43,188 @@ my @tests = (
       { 'artist.when_began' => { -dt => $date } },
       { 'artist.when_ended' => { '<' => { -dt => $date2 } } }
     ],
-    stmt   => 'UPDATE artist SET artist.when_began = ?  WHERE artist.when_ended < ?  ',
-    bind   => [
-      [ 'artist.when_began', '2010-12-14 12:12:12' ],
-      [ 'artist.when_ended', '2010-12-16 12:12:12' ],
-    ],
+    sqlite => {
+       stmt   => 'UPDATE artist SET artist.when_began = ?  WHERE artist.when_ended < ?  ',
+       bind   => [
+         [ 'artist.when_began', '2010-12-14 12:12:12' ],
+         [ 'artist.when_ended', '2010-12-16 12:12:12' ],
+       ],
+    },
     msg => '-dt_now works',
   },
   {
     func   => 'select',
     args   => ['artist', [ [ -dt_year => { -ident => 'artist.when_began' } ] ]],
-    stmt   => "SELECT STRFTIME('%Y', artist.when_began) FROM artist",
-    bind   => [],
+    sqlite => {
+      stmt   => "SELECT STRFTIME('%Y', artist.when_began) FROM artist",
+       bind   => [],
+    },
     msg    => '-dt_year works',
   },
   {
     func   => 'select',
     args   => ['artist', [ [ -dt_month => { -ident => 'artist.when_began' } ] ]],
-    stmt   => "SELECT STRFTIME('%m', artist.when_began) FROM artist",
-    bind   => [],
+    sqlite => {
+      stmt   => "SELECT STRFTIME('%m', artist.when_began) FROM artist",
+      bind   => [],
+    },
     msg    => '-dt_month works',
   },
   {
     func   => 'select',
     args   => ['artist', [ [ -dt_day => { -ident => 'artist.when_began' } ] ]],
-    stmt   => "SELECT STRFTIME('%d', artist.when_began) FROM artist",
-    bind   => [],
+    sqlite => {
+      stmt   => "SELECT STRFTIME('%d', artist.when_began) FROM artist",
+      bind   => [],
+    },
     msg    => '-dt_day works',
   },
   {
     func   => 'select',
     args   => ['artist', [ [ -dt_hour => { -ident => 'artist.when_began' } ] ]],
-    stmt   => "SELECT STRFTIME('%H', artist.when_began) FROM artist",
-    bind   => [],
+    sqlite => {
+      stmt   => "SELECT STRFTIME('%H', artist.when_began) FROM artist",
+      bind   => [],
+    },
     msg    => '-dt_hour works',
   },
   {
     func   => 'select',
     args   => ['artist', [ [ -dt_minute => { -ident => 'artist.when_began' } ] ]],
-    stmt   => "SELECT STRFTIME('%M', artist.when_began) FROM artist",
-    bind   => [],
+    sqlite => {
+      stmt   => "SELECT STRFTIME('%M', artist.when_began) FROM artist",
+      bind   => [],
+    },
     msg    => '-dt_minute works',
   },
   {
     func   => 'select',
     args   => ['artist', [ [ -dt_second => { -ident => 'artist.when_began' } ] ]],
-    stmt   => "SELECT STRFTIME('%s', artist.when_began) FROM artist",
-    bind   => [],
+    sqlite => {
+      stmt   => "SELECT STRFTIME('%s', artist.when_began) FROM artist",
+      bind   => [],
+    },
     msg    => '-dt_second works',
   },
   {
     func   => 'select',
     args   => ['artist', [ [ -dt_diff => [second => { -ident => 'artist.when_ended' }, \'artist.when_began' ] ] ]],
-    stmt   => "SELECT (STRFTIME('%s', artist.when_ended) - STRFTIME('%s', artist.when_began)) FROM artist",
-    bind   => [],
+    sqlite => {
+      stmt   => "SELECT (STRFTIME('%s', artist.when_ended) - STRFTIME('%s', artist.when_began)) FROM artist",
+      bind   => [],
+    },
     msg    => '-dt_diff (second) works',
   },
   {
     func   => 'select',
     args   => ['artist', [ [ -dt_diff => [day => { -ident => 'artist.when_ended' }, \'artist.when_began' ] ] ]],
-    stmt   => "SELECT (JULIANDAY(artist.when_ended) - JULIANDAY(artist.when_began)) FROM artist",
-    bind   => [],
+    sqlite => {
+      stmt   => "SELECT (JULIANDAY(artist.when_ended) - JULIANDAY(artist.when_began)) FROM artist",
+      bind   => [],
+    },
     msg    => '-dt_diff (day) works',
   },
   {
     func   => 'select',
     args   => ['artist', [ [ -dt_add => [year => 3, { -ident => 'artist.when_ended' } ] ] ]],
-    stmt   => "SELECT (datetime(artist.when_ended, ? || ' years')) FROM artist",
-    bind   => [[ '', 3 ]],
+    sqlite => {
+      stmt   => "SELECT (datetime(artist.when_ended, ? || ' years')) FROM artist",
+      bind   => [[ '', 3 ]],
+    },
     msg    => '-dt_add (year) works',
   },
   {
     func   => 'select',
     args   => ['artist', [ [ -dt_add => [month => 3, { -ident => 'artist.when_ended' } ] ] ]],
-    stmt   => "SELECT (datetime(artist.when_ended, ? || ' months')) FROM artist",
-    bind   => [[ '', 3 ]],
+    sqlite => {
+      stmt   => "SELECT (datetime(artist.when_ended, ? || ' months')) FROM artist",
+      bind   => [[ '', 3 ]],
+    },
     msg    => '-dt_add (month) works',
   },
   {
     func   => 'select',
     args   => ['artist', [ [ -dt_add => [day => 3, { -ident => 'artist.when_ended' } ] ] ]],
-    stmt   => "SELECT (datetime(artist.when_ended, ? || ' days')) FROM artist",
-    bind   => [[ '', 3 ]],
+    sqlite => {
+      stmt   => "SELECT (datetime(artist.when_ended, ? || ' days')) FROM artist",
+      bind   => [[ '', 3 ]],
+    },
     msg    => '-dt_add (day) works',
   },
   {
     func   => 'select',
     args   => ['artist', [ [ -dt_add => [hour => 3, { -ident => 'artist.when_ended' } ] ] ]],
-    stmt   => "SELECT (datetime(artist.when_ended, ? || ' hours')) FROM artist",
-    bind   => [[ '', 3 ]],
+    sqlite => {
+      stmt   => "SELECT (datetime(artist.when_ended, ? || ' hours')) FROM artist",
+      bind   => [[ '', 3 ]],
+    },
     msg    => '-dt_add (hour) works',
   },
   {
     func   => 'select',
     args   => ['artist', [ [ -dt_add => [minute => 3, { -ident => 'artist.when_ended' } ] ] ]],
-    stmt   => "SELECT (datetime(artist.when_ended, ? || ' minutes')) FROM artist",
-    bind   => [[ '', 3 ]],
+    sqlite => {
+      stmt   => "SELECT (datetime(artist.when_ended, ? || ' minutes')) FROM artist",
+      bind   => [[ '', 3 ]],
+    },
     msg    => '-dt_add (minute) works',
   },
   {
     func   => 'select',
     args   => ['artist', [ [ -dt_add => [second => 3, { -ident => 'artist.when_ended' } ] ] ]],
-    stmt   => "SELECT (datetime(artist.when_ended, ? || ' seconds')) FROM artist",
-    bind   => [[ '', 3 ]],
+    sqlite => {
+      stmt   => "SELECT (datetime(artist.when_ended, ? || ' seconds')) FROM artist",
+      bind   => [[ '', 3 ]],
+    },
     msg    => '-dt_add (second) works',
   },
   {
     func   => 'select',
     args   => ['artist', [ [ -dt_diff => [year => \'artist.when_started', { -ident => 'artist.when_ended' } ] ] ]],
-    exception_like => qr/date diff not supported for part "year" with database "SQLite"/,
+    sqlite => {
+      exception_like => qr/date diff not supported for part "year" with database "SQLite"/,
+    },
   },
 );
 
 for my $t (@tests) {
   local $"=', ';
 
-  my $maker = $sql_maker;
+  for my $db (keys %sql_maker) {
+     my $maker = $sql_maker{$db};
 
-  my($stmt, @bind);
+     my($stmt, @bind);
 
-  my $cref = sub {
-    my $op = $t->{func};
-    ($stmt, @bind) = $maker->$op (@ { $t->{args} } );
-  };
+     my $cref = sub {
+       my $op = $t->{func};
+       ($stmt, @bind) = $maker->$op (@ { $t->{args} } );
+     };
 
-  if ($t->{exception_like}) {
-    throws_ok(
-      sub { $cref->() },
-      $t->{exception_like},
-      "throws the expected exception ($t->{exception_like})",
-    );
-  } else {
-    if ($t->{warning_like}) {
-      warning_like(
-        sub { $cref->() },
-        $t->{warning_like},
-        "issues the expected warning ($t->{warning_like})"
-      );
-    }
-    else {
-      $cref->();
-    }
-    is_same_sql_bind(
-      $stmt,
-      \@bind,
-      $t->{stmt},
-      $t->{bind},
-      ($t->{msg} ? $t->{msg} : ())
-    );
+     if ($t->{$db}{exception_like}) {
+       throws_ok(
+         sub { $cref->() },
+         $t->{$db}{exception_like},
+         "throws the expected exception ($t->{$db}{exception_like})",
+       );
+     } else {
+       if ($t->{$db}{warning_like}) {
+         warning_like(
+           sub { $cref->() },
+           $t->{$db}{warning_like},
+           "issues the expected warning ($t->{$db}{warning_like})"
+         );
+       }
+       else {
+         $cref->();
+       }
+       is_same_sql_bind(
+         $stmt,
+         \@bind,
+         $t->{$db}{stmt},
+         $t->{$db}{bind},
+         ($t->{msg} ? $t->{msg} : ())
+       );
+     }
   }
 }
 
