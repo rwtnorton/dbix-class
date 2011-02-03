@@ -7,6 +7,9 @@ use base qw/
   DBIx::Class::Storage::DBI::ODBC::ACCESS
 /;
 use mro 'c3';
+use DBIx::Class::Storage::DBI::ADO::MS_Jet::Cursor ();
+
+__PACKAGE__->cursor_class('DBIx::Class::Storage::DBI::ADO::MS_Jet::Cursor');
 
 =head1 NAME
 
@@ -49,10 +52,13 @@ sub _dbh_rollback {
     if $self->{transaction_depth} == 1;
 }
 
-# Cast GUIDs to remove the {}s that surround them by default.
-sub _select_args {
+# Fix up GUIDs for ->find, for cursors see the cursor_class above.
+
+sub select_single {
   my $self = shift;
   my ($ident, $select) = @_;
+
+  my @row = $self->next::method(@_);
 
   my $col_info = $self->_resolve_column_info($ident);
 
@@ -63,15 +69,16 @@ sub _select_args {
 
     my $data_type = $col_info->{$selected}{data_type};
 
-    if ($data_type && $self->_is_guid_type($data_type)) {
-      my $selected = $self->sql_maker->_quote($selected);
-      $select->[$select_idx] = \"CAST($selected AS VARCHAR)";
+    if ($self->_is_guid_type($data_type)) {
+      my $returned = $row[$select_idx];
+
+      $row[$select_idx] = substr($returned, 1, 36)
+        if substr($returned, 0, 1) eq '{';
     }
   }
 
-  return $self->next::method(@_);
+  return @row;
 }
-
 
 1;
 
