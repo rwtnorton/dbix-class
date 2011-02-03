@@ -331,6 +331,12 @@ sub _where_op_DATETIME_NOW {
   }
 }
 
+sub _reorder_add_datetime_vars {
+   my ($self, $amount, $date) = @_;
+
+   return ($amount, $date);
+}
+
 sub _where_op_ADD_DATETIME {
   my ($self) = @_;
 
@@ -350,12 +356,12 @@ sub _where_op_ADD_DATETIME {
   croak "first arg to -$op must be a scalar" unless !ref $vals->[0];
   croak "-$op must have two more arguments" unless scalar @$vals == 3;
 
-  my ($part, $amount, $date) = @$vals;
+  my ($part, @rest) = @$vals;
 
   my $placeholder = $self->_convert('?');
 
   my (@all_sql, @all_bind);
-  foreach my $val ($amount, $date) {
+  foreach my $val ($self->_reorder_add_datetime_vars(@rest)) {
     my ($sql, @bind) = $self->_SWITCH_refkind($val, {
        SCALAR => sub {
          return ($placeholder, $self->_bindtype($k, $val) );
@@ -377,7 +383,7 @@ sub _where_op_ADD_DATETIME {
     push @all_bind, @bind;
   }
 
-  return $self->_datetime_add_sql($part, $all_sql[0], $all_sql[1], @all_bind)
+  return $self->_datetime_add_sql($part, $all_sql[0], $all_sql[1]), @all_bind
 }
 
 sub _where_op_DIFF_DATETIME {
