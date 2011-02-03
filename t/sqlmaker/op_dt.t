@@ -190,8 +190,12 @@ my @tests = (
 for my $t (@tests) {
   local $"=', ';
 
+  DB_TEST:
   for my $db (keys %sql_maker) {
      my $maker = $sql_maker{$db};
+
+     my $db_test = $t->{$db};
+     next DB_TEST unless $db_test;
 
      my($stmt, @bind);
 
@@ -200,18 +204,18 @@ for my $t (@tests) {
        ($stmt, @bind) = $maker->$op (@ { $t->{args} } );
      };
 
-     if ($t->{$db}{exception_like}) {
+     if ($db_test->{exception_like}) {
        throws_ok(
          sub { $cref->() },
-         $t->{$db}{exception_like},
-         "throws the expected exception ($t->{$db}{exception_like})",
+         $db_test->{exception_like},
+         "throws the expected exception ($db_test->{exception_like})",
        );
      } else {
-       if ($t->{$db}{warning_like}) {
+       if ($db_test->{warning_like}) {
          warning_like(
            sub { $cref->() },
-           $t->{$db}{warning_like},
-           "issues the expected warning ($t->{$db}{warning_like})"
+           $db_test->{warning_like},
+           "issues the expected warning ($db_test->{warning_like})"
          );
        }
        else {
@@ -220,8 +224,8 @@ for my $t (@tests) {
        is_same_sql_bind(
          $stmt,
          \@bind,
-         $t->{$db}{stmt},
-         $t->{$db}{bind},
+         $db_test->{stmt},
+         $db_test->{bind},
          ($t->{msg} ? $t->{msg} : ())
        );
      }
