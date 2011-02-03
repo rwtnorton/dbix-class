@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 use Test::More;
-use Test::Fatal;
+use Test::Exception;
 
 use lib qw(t/lib);
 use DBIC::SqlMakerTest;
@@ -25,82 +25,169 @@ my $date = DateTime->new(
 
 my $date2 = $date->clone->set_day(16);
 
-use Devel::Dwarn;
-
-Dwarn [$schema->resultset('Artist')->search(undef, {
-   select => [
-      [ -dt_diff => [second => { -dt => $date }, { -dt => $date2 }] ],
-      [ -dt_diff => [day    => { -dt => $date }, { -dt => $date2 }] ],
-      [ -dt_add => [minute => 3, { -dt => $date }] ],
-      [ -dt_add => [minute => 3, { -dt_add => [ hour => 1, { -dt => $date } ] } ] ],
-      [ -dt_now => [] ],
-      [ -dt_now => ['system'] ],
-   ],
-   as => [qw(seconds days date date2 now now_local)],
-   result_class => 'DBIx::Class::ResultClass::HashRefInflator',
-   rows => 1,
-})->all];
-
-is_same_sql_bind (
-  \[ $sql_maker->select ('artist', '*', { 'artist.when_began' => { -dt => $date } } ) ],
-  "SELECT *
-    FROM artist
-    WHERE artist.when_began = ?
-  ",
-  [['artist.when_began', '2010-12-14 12:12:12']],
-  '-dt works'
+my @tests = (
+  {
+    func   => 'select',
+    args   => ['artist', '*', { 'artist.when_began' => { -dt => $date } }],
+    stmt   => 'SELECT * FROM artist WHERE artist.when_began = ?',
+    bind   => [[ 'artist.when_began', '2010-12-14 12:12:12' ]],
+    msg => '-dt_now works',
+  },
+  {
+    func   => 'update',
+    args   => ['artist',
+      { 'artist.when_began' => { -dt => $date } },
+      { 'artist.when_ended' => { '<' => { -dt => $date2 } } }
+    ],
+    stmt   => 'UPDATE artist SET artist.when_began = ?  WHERE artist.when_ended < ?  ',
+    bind   => [
+      [ 'artist.when_began', '2010-12-14 12:12:12' ],
+      [ 'artist.when_ended', '2010-12-16 12:12:12' ],
+    ],
+    msg => '-dt_now works',
+  },
+  {
+    func   => 'select',
+    args   => ['artist', [ [ -dt_year => { -ident => 'artist.when_began' } ] ]],
+    stmt   => "SELECT STRFTIME('%Y', artist.when_began) FROM artist",
+    bind   => [],
+    msg    => '-dt_year works',
+  },
+  {
+    func   => 'select',
+    args   => ['artist', [ [ -dt_month => { -ident => 'artist.when_began' } ] ]],
+    stmt   => "SELECT STRFTIME('%m', artist.when_began) FROM artist",
+    bind   => [],
+    msg    => '-dt_month works',
+  },
+  {
+    func   => 'select',
+    args   => ['artist', [ [ -dt_day => { -ident => 'artist.when_began' } ] ]],
+    stmt   => "SELECT STRFTIME('%d', artist.when_began) FROM artist",
+    bind   => [],
+    msg    => '-dt_day works',
+  },
+  {
+    func   => 'select',
+    args   => ['artist', [ [ -dt_hour => { -ident => 'artist.when_began' } ] ]],
+    stmt   => "SELECT STRFTIME('%H', artist.when_began) FROM artist",
+    bind   => [],
+    msg    => '-dt_hour works',
+  },
+  {
+    func   => 'select',
+    args   => ['artist', [ [ -dt_minute => { -ident => 'artist.when_began' } ] ]],
+    stmt   => "SELECT STRFTIME('%M', artist.when_began) FROM artist",
+    bind   => [],
+    msg    => '-dt_minute works',
+  },
+  {
+    func   => 'select',
+    args   => ['artist', [ [ -dt_second => { -ident => 'artist.when_began' } ] ]],
+    stmt   => "SELECT STRFTIME('%s', artist.when_began) FROM artist",
+    bind   => [],
+    msg    => '-dt_second works',
+  },
+  {
+    func   => 'select',
+    args   => ['artist', [ [ -dt_diff => [second => { -ident => 'artist.when_ended' }, \'artist.when_began' ] ] ]],
+    stmt   => "SELECT (STRFTIME('%s', artist.when_ended) - STRFTIME('%s', artist.when_began)) FROM artist",
+    bind   => [],
+    msg    => '-dt_diff (second) works',
+  },
+  {
+    func   => 'select',
+    args   => ['artist', [ [ -dt_diff => [day => { -ident => 'artist.when_ended' }, \'artist.when_began' ] ] ]],
+    stmt   => "SELECT (JULIANDAY(artist.when_ended) - JULIANDAY(artist.when_began)) FROM artist",
+    bind   => [],
+    msg    => '-dt_diff (day) works',
+  },
+  {
+    func   => 'select',
+    args   => ['artist', [ [ -dt_add => [year => 3, { -ident => 'artist.when_ended' } ] ] ]],
+    stmt   => "SELECT (datetime(artist.when_ended, ? || ' years')) FROM artist",
+    bind   => [[ '', 3 ]],
+    msg    => '-dt_add (year) works',
+  },
+  {
+    func   => 'select',
+    args   => ['artist', [ [ -dt_add => [month => 3, { -ident => 'artist.when_ended' } ] ] ]],
+    stmt   => "SELECT (datetime(artist.when_ended, ? || ' months')) FROM artist",
+    bind   => [[ '', 3 ]],
+    msg    => '-dt_add (month) works',
+  },
+  {
+    func   => 'select',
+    args   => ['artist', [ [ -dt_add => [day => 3, { -ident => 'artist.when_ended' } ] ] ]],
+    stmt   => "SELECT (datetime(artist.when_ended, ? || ' days')) FROM artist",
+    bind   => [[ '', 3 ]],
+    msg    => '-dt_add (day) works',
+  },
+  {
+    func   => 'select',
+    args   => ['artist', [ [ -dt_add => [hour => 3, { -ident => 'artist.when_ended' } ] ] ]],
+    stmt   => "SELECT (datetime(artist.when_ended, ? || ' hours')) FROM artist",
+    bind   => [[ '', 3 ]],
+    msg    => '-dt_add (hour) works',
+  },
+  {
+    func   => 'select',
+    args   => ['artist', [ [ -dt_add => [minute => 3, { -ident => 'artist.when_ended' } ] ] ]],
+    stmt   => "SELECT (datetime(artist.when_ended, ? || ' minutes')) FROM artist",
+    bind   => [[ '', 3 ]],
+    msg    => '-dt_add (minute) works',
+  },
+  {
+    func   => 'select',
+    args   => ['artist', [ [ -dt_add => [second => 3, { -ident => 'artist.when_ended' } ] ] ]],
+    stmt   => "SELECT (datetime(artist.when_ended, ? || ' seconds')) FROM artist",
+    bind   => [[ '', 3 ]],
+    msg    => '-dt_add (second) works',
+  },
+  {
+    func   => 'select',
+    args   => ['artist', [ [ -dt_diff => [year => \'artist.when_started', { -ident => 'artist.when_ended' } ] ] ]],
+    exception_like => qr/date diff not supported for part "year" with database "SQLite"/,
+  },
 );
 
-is_same_sql_bind (
-  \[ $sql_maker->update ('artist',
-    { 'artist.when_began' => { -dt => $date } },
-    { 'artist.when_ended' => { '<' => { -dt => $date2 } } },
-  ) ],
-  "UPDATE artist
-    SET artist.when_began = ?
-    WHERE artist.when_ended < ?
-  ",
-  [
-   ['artist.when_began', '2010-12-14 12:12:12'],
-   ['artist.when_ended', '2010-12-16 12:12:12'],
-  ],
-  '-dt works'
-);
+for my $t (@tests) {
+  local $"=', ';
 
-is_same_sql_bind (
-  \[ $sql_maker->select ('artist', '*', {
-    -and => [
-       { -op => [ '=', 12, { -dt_month => { -ident => 'artist.when_began' } } ] },
-       { -op => [ '=', 2010, { -dt_get => [year => \'artist.when_began'] } ] },
-       { -op => [ '=', 14, { -dt_get => [day_of_month => \'artist.when_began'] } ] },
-       { -op => [ '=', 100, { -dt_diff => [second => { -ident => 'artist.when_began' }, \'artist.when_ended'] } ] },
-       { -op => [ '=', 10, { -dt_diff => [day => { -ident => 'artist.when_played_last' }, \'artist.when_ended'] } ] },
-       { -op => [ '=', { -dt_now => [] }, { -dt_add => [minute => 3, { -dt_add => [ hour => 1, { -dt_now => [] } ] } ] } ] },
-    ]
-  } ) ],
-  "SELECT *
-     FROM artist
-     WHERE ( (
-       ( ? = STRFTIME('%m', artist.when_began) ) AND
-       ( ? = STRFTIME('%Y', artist.when_began) ) AND
-       ( ? = STRFTIME('%d', artist.when_began) ) AND
-       ( ? = ( STRFTIME('%s', artist.when_began) - STRFTIME('%s', artist.when_ended))) AND
-       ( ? = ( JULIANDAY(artist.when_played_last) - JULIANDAY(artist.when_ended))) AND
-       ( datetime('now') = (datetime((datetime(datetime('now'), ? || ' hours')), ? || ' minutes')))
-     ) )
-  ",
-  [
-   ['', 12],
-   ['', 2010],
-   ['', 14],
-   ['', 100],
-   ['', 10],
-   ['', 1],
-   ['', 3],
-  ],
-  '-dt_month, -dt_get, and -dt_diff work'
-);
+  my $maker = $sql_maker;
 
-like exception { $sql_maker->select('foo', '*', { -dt_diff => [year => \'artist.lololol', \'artist.fail'] }) }, qr/date diff not supported for part "year" with database "SQLite"/, 'SQLite does not support year diff';
+  my($stmt, @bind);
+
+  my $cref = sub {
+    my $op = $t->{func};
+    ($stmt, @bind) = $maker->$op (@ { $t->{args} } );
+  };
+
+  if ($t->{exception_like}) {
+    throws_ok(
+      sub { $cref->() },
+      $t->{exception_like},
+      "throws the expected exception ($t->{exception_like})",
+    );
+  } else {
+    if ($t->{warning_like}) {
+      warning_like(
+        sub { $cref->() },
+        $t->{warning_like},
+        "issues the expected warning ($t->{warning_like})"
+      );
+    }
+    else {
+      $cref->();
+    }
+    is_same_sql_bind(
+      $stmt,
+      \@bind,
+      $t->{stmt},
+      $t->{bind},
+      ($t->{msg} ? $t->{msg} : ())
+    );
+  }
+}
 
 done_testing;
