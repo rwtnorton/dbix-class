@@ -18,10 +18,9 @@ sub _lock_select () { '' };
      hour                => 'H',
      day_of_year         => 'j',
      minute              => 'M',
-     seconds             => 'S',
+     second              => 'S',
      day_of_week         => 'w',
      week                => 'W',
-     year                => 'Y',
      julian_day          => 'J',
      seconds_since_epoch => 's',
      fractional_seconds  => 'f',
@@ -42,6 +41,27 @@ sub _datetime_diff_sql {
       return "(STRFTIME('%s',$left) - STRFTIME('%s',$right))"
    } else {
       die $_[0]->_unsupported_date_diff($_[1], 'SQLite')
+   }
+}
+
+{
+  my %part_map = (
+     day                 => 'days',
+     hour                => 'hours',
+     minute              => 'minutes',
+     second              => 'seconds',
+     month               => 'months',
+     year                => 'years',
+  );
+   sub _datetime_add_sql {
+      my ($self, $part, $amount, $date, @bind) = @_;
+
+      die $self->_unsupported_date_adding($part, 'SQLite')
+         unless exists $part_map{$part};
+
+      my $placeholder = $self->_convert('?');
+      my ($a_bind, $d_bind, @rest) = @bind;
+      return "(datetime($date, $placeholder || ' $part_map{$part}'))", $d_bind, $a_bind, @rest;
    }
 }
 

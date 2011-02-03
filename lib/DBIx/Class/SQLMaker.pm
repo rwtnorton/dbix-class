@@ -176,6 +176,7 @@ sub new {
     { regex => qr/^ dt    $/xi, handler => '_where_op_CONVERT_DATETIME' },
     { regex => qr/^ dt_get $/xi, handler => '_where_op_GET_DATETIME' },
     { regex => qr/^ dt_diff $/xi, handler => '_where_op_DIFF_DATETIME' },
+    { regex => qr/^ dt_add  $/xi, handler => '_where_op_ADD_DATETIME' },
     map +{ regex => qr/^ dt_$_ $/xi, handler => '_where_op_GET_DATETIME_'.uc($_) },
       qw(year month day hour minute second)
   );
@@ -235,6 +236,10 @@ sub _unsupported_date_extraction {
    "date part extraction not supported for part \"$_[1]\" with database \"$_[2]\""
 }
 
+sub _unsupported_date_adding {
+   "date part adding not supported for part \"$_[1]\" with database \"$_[2]\""
+}
+
 sub _unsupported_date_diff {
    "date diff not supported for part \"$_[1]\" with database \"$_[2]\""
 }
@@ -242,6 +247,7 @@ sub _unsupported_date_diff {
 sub _datetime_sql { die 'date part extraction not implemented for this database' }
 
 sub _datetime_diff_sql { die 'date diffing not implemented for this database' }
+sub _datetime_add_sql { die 'date adding not implemented for this database' }
 
 sub _where_op_GET_DATETIME {
   my ($self) = @_;
@@ -296,6 +302,55 @@ for my $part (qw(month day year hour minute second)) {
 
      return $self->_where_op_GET_DATETIME($op, $lhs, [$part, $rhs])
    }
+}
+
+sub _where_op_ADD_DATETIME {
+  my ($self) = @_;
+
+  my ($k, $op, $vals);
+
+  if (@_ == 3) {
+     $op = $_[1];
+     $vals = $_[2];
+     $k = '';
+  } elsif (@_ == 4) {
+     $k = $_[1];
+     $op = $_[2];
+     $vals = $_[3];
+  }
+
+  croak "args to -$op must be an arrayref" unless ref $vals eq 'ARRAY';
+  croak "first arg to -$op must be a scalar" unless !ref $vals->[0];
+  croak "-$op must have two more arguments" unless scalar @$vals == 3;
+
+  my ($part, $amount, $date) = @$vals;
+
+  my $placeholder = $self->_convert('?');
+
+  my (@all_sql, @all_bind);
+  foreach my $val ($amount, $date) {
+    my ($sql, @bind) = $self->_SWITCH_refkind($val, {
+       SCALAR => sub {
+         return ($placeholder, $self->_bindtype($k, $val) );
+       },
+       SCALARREF => sub {
+         return $$val;
+       },
+       ARRAYREFREF => sub {
+         my ($sql, @bind) = @$$val;
+         $self->_assert_bindval_matches_bindtype(@bind);
+         return ($sql, @bind);
+       },
+       HASHREF => sub {
+         my $method = $self->_METHOD_FOR_refkind("_where_hashpair", $val);
+         $self->$method('', $val);
+       }
+    });
+    push @all_sql, $sql;
+    push @all_bind, @bind;
+  }
+
+  return $self->_datetime_add_sql($part, $all_sql[0], $all_sql[1], @all_bind)
 }
 
 sub _where_op_DIFF_DATETIME {
