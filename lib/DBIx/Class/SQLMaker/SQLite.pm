@@ -59,8 +59,7 @@ sub _datetime_diff_sql {
       die $self->_unsupported_date_adding($part, 'SQLite')
          unless exists $part_map{$part};
 
-      my $placeholder = $self->_convert('?');
-      return "(datetime($date, $placeholder || ' $part_map{$part}'))"
+      return "(datetime($date, $amount || ' $part_map{$part}'))"
    }
 }
 
