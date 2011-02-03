@@ -54,15 +54,20 @@ sub _datetime_diff_sql {
      year                => 'years',
   );
    sub _datetime_add_sql {
-      my ($self, $part, $amount, $date, @bind) = @_;
+      my ($self, $part, $date, $amount) = @_;
 
       die $self->_unsupported_date_adding($part, 'SQLite')
          unless exists $part_map{$part};
 
       my $placeholder = $self->_convert('?');
-      my ($a_bind, $d_bind, @rest) = @bind;
-      return "(datetime($date, $placeholder || ' $part_map{$part}'))", $d_bind, $a_bind, @rest;
+      return "(datetime($date, $placeholder || ' $part_map{$part}'))"
    }
+}
+
+sub _reorder_add_datetime_vars {
+   my ($self, $amount, $date) = @_;
+
+   return ($date, $amount);
 }
 
 sub _datetime_now_sql { "datetime('now')" }
