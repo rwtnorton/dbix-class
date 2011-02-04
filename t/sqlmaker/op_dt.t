@@ -270,6 +270,7 @@ my @tests = (
       where => "me.id = ?",
       bind   => [['', 3], ['me.id' => 2 ]],
       hri    => [{ date => '2014-12-14 12:12:12.000' }],
+      skip   => 'need working bindtypes',
     },
     msg    => '-dt_add (year) works',
   },
@@ -289,6 +290,7 @@ my @tests = (
       where => "me.id = ?",
       bind   => [['', 3], ['me.id' => 2 ]],
       hri    => [{ date => '2012-03-14 12:12:12.000' }],
+      skip   => 'need working bindtypes',
     },
     msg    => '-dt_add (month) works',
   },
@@ -308,6 +310,7 @@ my @tests = (
       where => "me.id = ?",
       bind   => [['', 3], ['me.id' => 2 ]],
       hri    => [{ date => '2011-12-17 12:12:12.000' }],
+      skip   => 'need working bindtypes',
     },
     msg    => '-dt_add (day) works',
   },
@@ -327,6 +330,7 @@ my @tests = (
       where => "me.id = ?",
       bind   => [['', 3], ['me.id' => 2 ]],
       hri    => [{ date => '2011-12-14 15:12:12.000' }],
+      skip   => 'need working bindtypes',
     },
     msg    => '-dt_add (hour) works',
   },
@@ -346,6 +350,7 @@ my @tests = (
       where => "me.id = ?",
       bind   => [['', 3], ['me.id' => 2 ]],
       hri    => [{ date => '2011-12-14 12:15:12.000' }],
+      skip   => 'need working bindtypes',
     },
     msg    => '-dt_add (minute) works',
   },
@@ -365,6 +370,7 @@ my @tests = (
       where => "me.id = ?",
       bind   => [['', 3], ['me.id' => 2 ]],
       hri    => [{ date => '2011-12-14 12:12:15.000' }],
+      skip   => 'need working bindtypes',
     },
     msg    => '-dt_add (second) works',
   },
@@ -384,6 +390,7 @@ my @tests = (
       where => "me.id = ?",
       bind   => [['', 3], [ '', 1 ], ['me.id', 2]],
       hri    => [{ date => '2011-12-15 12:12:15.000' }],
+      skip   => 'need working bindtypes',
     },
     msg    => 'nested -dt_add works',
   },
@@ -452,6 +459,7 @@ for my $t (@tests) {
        SKIP: {
        if (my $hri = $db_test->{hri}) {
           skip "Cannot test database we are not connected to ($db)", 1 unless $dbs_to_test{$db};
+          skip $db_test->{skip} . " ($db)", 1 if $db_test->{skip};
 
           my $msg = ($t->{msg} ? "$t->{msg} ($db actually pulls expected data)" : '');
           try {
