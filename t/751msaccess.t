@@ -42,6 +42,7 @@ foreach my $info (@info) {
 
   my $dbh = $schema->storage->dbh;
 
+  # turn off warnings for OLE exception from ADO about nonexistant table
   eval { local $^W = 0; $dbh->do("DROP TABLE artist") };
 
   $dbh->do(<<EOF);
@@ -60,11 +61,42 @@ EOF
   my $new = $ars->create({ name => 'foo' });
   ok($new->artistid, "Auto-PK worked");
 
+  my $first_artistid = $new->artistid;
+
 # test explicit key spec
   $new = $ars->create ({ name => 'bar', artistid => 66 });
   is($new->artistid, 66, 'Explicit PK worked');
   $new->discard_changes;
   is($new->artistid, 66, 'Explicit PK assigned');
+
+# test joins
+  eval { local $^W = 0; $dbh->do("DROP TABLE cd") };
+
+  $dbh->do(<<EOF);
+  CREATE TABLE cd (
+    cdid AUTOINCREMENT PRIMARY KEY,
+    artist INTEGER NULL,
+    title VARCHAR(255) NULL,
+    [year] CHAR(4) NULL,
+    genreid INTEGER NULL,
+    single_track INTEGER NULL
+  )
+EOF
+
+  my $cd = $schema->resultset('CD')->create({
+    artist => $first_artistid,
+    title => 'Some Album',
+  });
+
+  my $joined_artist = $schema->resultset('Artist')->search({
+    artistid => $first_artistid,
+  }, {
+    join => [ 'cds' ],
+    '+select' => [ 'cds.title' ],
+    '+as'     => [ 'cd_title'  ],
+  })->next;
+
+  is $joined_artist->get_column('cd_title'), 'Some Album', 'join works';
 
 # test basic transactions
   $schema->txn_do(sub {
@@ -284,5 +316,6 @@ sub cleanup {
   $schema->storage->disconnect;
   local $^W = 0; # for ADO OLE exceptions
   $schema->storage->dbh->do("DROP TABLE $_")
-    for qw/artist artist_guid bindtype_test/;
+    for qw/artist cd bindtype_test artist_guid/;
 }
+# vim:sts=2 sw=2:
