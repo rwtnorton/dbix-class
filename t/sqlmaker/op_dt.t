@@ -7,13 +7,13 @@ use Test::Exception;
 use lib qw(t/lib);
 use DBIC::SqlMakerTest;
 use DateTime;
+use DBIx::Class::SQLMaker::MSSQL;
 
 use_ok('DBICTest');
 
-my $schema = DBICTest->init_schema();
-
 my %sql_maker = (
-   sqlite => $schema->storage->sql_maker,
+   sqlite => DBICTest->init_schema( no_deploy=>1 )->storage->sql_maker,
+   mssql => DBICTest->init_schema( no_deploy=> 1, storage_type => '::DBI::MSSQL' )->storage->sql_maker,
 );
 
 my $date = DateTime->new(
@@ -35,6 +35,10 @@ my @tests = (
        stmt   => 'SELECT * FROM artist WHERE artist.when_began = ?',
        bind   => [[ 'artist.when_began', '2010-12-14 12:12:12' ]],
     },
+    mssql => {
+       stmt   => 'SELECT * FROM artist WHERE artist.when_began = ?',
+       bind   => [[ 'artist.when_began', '2010-12-14 12:12:12.000' ]],
+    },
     msg => '-dt_now works',
   },
   {
@@ -48,6 +52,13 @@ my @tests = (
        bind   => [
          [ 'artist.when_began', '2010-12-14 12:12:12' ],
          [ 'artist.when_ended', '2010-12-16 12:12:12' ],
+       ],
+    },
+    mssql => {
+       stmt   => 'UPDATE artist SET artist.when_began = ?  WHERE artist.when_ended < ?  ',
+       bind   => [
+         [ 'artist.when_began', '2010-12-14 12:12:12.000' ],
+         [ 'artist.when_ended', '2010-12-16 12:12:12.000' ],
        ],
     },
     msg => '-dt_now works',
@@ -77,6 +88,10 @@ my @tests = (
       stmt   => "SELECT STRFTIME('%d', artist.when_began) FROM artist",
       bind   => [],
     },
+    mssql => {
+      stmt   => "SELECT DATEPART('day', artist.when_began) FROM artist",
+      bind   => [],
+    },
     msg    => '-dt_day works',
   },
   {
@@ -95,6 +110,10 @@ my @tests = (
       stmt   => "SELECT STRFTIME('%M', artist.when_began) FROM artist",
       bind   => [],
     },
+    mssql => {
+      stmt   => "SELECT DATEPART('minute', artist.when_began) FROM artist",
+      bind   => [],
+    },
     msg    => '-dt_minute works',
   },
   {
@@ -102,6 +121,10 @@ my @tests = (
     args   => ['artist', [ [ -dt_second => { -ident => 'artist.when_began' } ] ]],
     sqlite => {
       stmt   => "SELECT STRFTIME('%s', artist.when_began) FROM artist",
+      bind   => [],
+    },
+    mssql => {
+      stmt   => "SELECT DATEPART('second', artist.when_began) FROM artist",
       bind   => [],
     },
     msg    => '-dt_second works',
@@ -113,6 +136,10 @@ my @tests = (
       stmt   => "SELECT (STRFTIME('%s', artist.when_ended) - STRFTIME('%s', artist.when_began)) FROM artist",
       bind   => [],
     },
+    mssql => {
+      stmt   => "SELECT DATEDIFF('second', artist.when_ended, artist.when_began) FROM artist",
+      bind   => [],
+    },
     msg    => '-dt_diff (second) works',
   },
   {
@@ -120,6 +147,10 @@ my @tests = (
     args   => ['artist', [ [ -dt_diff => [day => { -ident => 'artist.when_ended' }, \'artist.when_began' ] ] ]],
     sqlite => {
       stmt   => "SELECT (JULIANDAY(artist.when_ended) - JULIANDAY(artist.when_began)) FROM artist",
+      bind   => [],
+    },
+    mssql => {
+      stmt   => "SELECT DATEDIFF('dayofyear', artist.when_ended, artist.when_began) FROM artist",
       bind   => [],
     },
     msg    => '-dt_diff (day) works',
@@ -131,6 +162,10 @@ my @tests = (
       stmt   => "SELECT (datetime(artist.when_ended, ? || ' years')) FROM artist",
       bind   => [[ '', 3 ]],
     },
+    mssql => {
+      stmt   => "SELECT (DATEADD(year, ?, artist.when_ended)) FROM artist",
+      bind   => [[ '', 3 ]],
+    },
     msg    => '-dt_add (year) works',
   },
   {
@@ -140,6 +175,10 @@ my @tests = (
       stmt   => "SELECT (datetime(artist.when_ended, ? || ' months')) FROM artist",
       bind   => [[ '', 3 ]],
     },
+    mssql => {
+      stmt   => "SELECT (DATEADD(month, ?, artist.when_ended)) FROM artist",
+      bind   => [[ '', 3 ]],
+    },
     msg    => '-dt_add (month) works',
   },
   {
@@ -147,6 +186,10 @@ my @tests = (
     args   => ['artist', [ [ -dt_add => [day => 3, { -ident => 'artist.when_ended' } ] ] ]],
     sqlite => {
       stmt   => "SELECT (datetime(artist.when_ended, ? || ' days')) FROM artist",
+      bind   => [[ '', 3 ]],
+    },
+    mssql => {
+      stmt   => "SELECT (DATEADD(dayofyear, ?, artist.when_ended)) FROM artist",
       bind   => [[ '', 3 ]],
     },
     msg    => '-dt_add (day) works',
@@ -167,6 +210,10 @@ my @tests = (
       stmt   => "SELECT (datetime(artist.when_ended, ? || ' minutes')) FROM artist",
       bind   => [[ '', 3 ]],
     },
+    mssql => {
+      stmt   => "SELECT (DATEADD(minute, ?, artist.when_ended)) FROM artist",
+      bind   => [[ '', 3 ]],
+    },
     msg    => '-dt_add (minute) works',
   },
   {
@@ -175,6 +222,23 @@ my @tests = (
     sqlite => {
       stmt   => "SELECT (datetime(artist.when_ended, ? || ' seconds')) FROM artist",
       bind   => [[ '', 3 ]],
+    },
+    mssql => {
+      stmt   => "SELECT (DATEADD(second, ?, artist.when_ended)) FROM artist",
+      bind   => [[ '', 3 ]],
+    },
+    msg    => '-dt_add (second) works',
+  },
+  {
+    func   => 'select',
+    args   => ['artist', [ [ -dt_add => [second => 3, { -dt_add => [ day => 1, { -ident => 'artist.when_ended' } ] } ] ] ]],
+    sqlite => {
+      stmt   => "SELECT (datetime((datetime(artist.when_ended, ? || ' days')), ? || ' seconds')) FROM artist",
+      bind   => [['', 1], [ '', 3 ]],
+    },
+    mssql => {
+      stmt   => "SELECT (DATEADD(second, ?, (DATEADD(dayofyear, ?, artist.when_ended)))) FROM artist",
+      bind   => [[ '', 3 ], [ '', 1] ],
     },
     msg    => '-dt_add (second) works',
   },
@@ -226,7 +290,7 @@ for my $t (@tests) {
          \@bind,
          $db_test->{stmt},
          $db_test->{bind},
-         ($t->{msg} ? $t->{msg} : ())
+         ($t->{msg} ? "$t->{msg} ($db)" : ())
        );
      }
   }
