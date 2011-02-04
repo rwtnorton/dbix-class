@@ -389,7 +389,7 @@ my @tests = (
   },
 
   {
-    search => { 'me.id' => 3 },
+    search => { 'me.id' => 2 },
     select   => [ [ -dt_diff => [year => \'me.starts_at', { -ident => 'me.created_on' } ] ] ],
     as       => [ 'year' ],
     sqlite => {
@@ -398,8 +398,8 @@ my @tests = (
     mssql => {
       select   => "DATEDIFF(year, me.created_on, me.starts_at)",
       where => "me.id = ?",
-      bind   => [['me.id', 3]],
-      hri    => [{ year => 1 }],
+      bind   => [['me.id', 2]],
+      hri    => [{ year => -1 }],
     },
     msg => '-dt_diff (year) works',
   },
