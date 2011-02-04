@@ -413,7 +413,7 @@ sub source_bind_attributes
   my %bind_attributes = %{ $self->next::method(@_) };
 
   foreach my $column ($source->columns) {
-    my %column_bind_attrs = %{ $bind_attributes{$column} };
+    my %column_bind_attrs = %{ $bind_attributes{$column} || {} };
 
     my $data_type = $source->column_info($column)->{data_type};
 

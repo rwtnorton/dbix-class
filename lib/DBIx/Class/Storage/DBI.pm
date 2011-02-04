@@ -2949,7 +2949,7 @@ sub _is_binary_lob_type {
 
 sub _is_text_lob_type {
   my ($self, $data_type) = @_;
-  $data_type && (lc($data_type) eq 'memo'
+  $data_type && ($data_type =~ /^(?:clob|memo)\z/i
     || $data_type =~ /^long(?:\s+(?:varchar|character\s*varying|nvarchar
                         |national\s*character\s*varying))\z/xi);
 }
