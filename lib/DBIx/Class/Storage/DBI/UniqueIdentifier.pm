@@ -4,8 +4,11 @@ use strict;
 use warnings;
 use base 'DBIx::Class::Storage::DBI';
 use mro 'c3';
+use Carp::Clan qw/^DBIx::Class|^Try::Tiny/;
 use Try::Tiny;
 use namespace::clean;
+
+__PACKAGE__->mk_group_accessors(inherited => 'new_guid');
 
 =head1 NAME
 
@@ -25,11 +28,26 @@ Currently used by L<DBIx::Class::Storage::DBI::MSSQL>,
 L<DBIx::Class::Storage::DBI::SQLAnywhere> and
 L<DBIx::Class::Storage::DBI::ODBC::ACCESS>.
 
-The composing class can define a C<_new_uuid> method to override the function
-used to generate a new UUID, which is C<newid()> by default.
+The composing class must set C<new_guid> to to the method used to generate a new
+GUID. It can also set it to C<undef>, in which case the user is required to set
+it, or a runtime error will be thrown. It can be:
 
-If this method returns C<undef>, then L<Data::GUID> will be used to generate the
-UUIDs.
+=over 4
+
+=item string
+
+In which case it is used as the name of database function to create a new GUID,
+
+=item coderef
+
+In which case the coderef should return a string GUID, using L<Data::GUID>, or
+whatever GUID generation method you prefer.
+
+=back
+
+For example:
+
+  $schema->storage->new_guid(sub { Data::GUID->new->as_string });
 
 =cut
 
@@ -76,19 +94,18 @@ sub insert {
   for my $guid_col (@get_guids_for) {
     my $new_guid;
 
-    if (my $guid_function = $self->_new_uuid) {
-      ($new_guid) = $self->_get_dbh->selectrow_array('SELECT '.$self->_new_uuid);
+    my $guid_method = $self->new_guid;
+
+    if (not defined $guid_method) {
+      croak 'You must set new_guid on your storage. See perldoc '
+           .'DBIx::Class::Storage::DBI::UniqueIdentifier';
+    }
+
+    if (ref $guid_method) {
+      $new_guid = $guid_method->();
     }
     else {
-      try {
-        require Data::GUID;
-      }
-      catch {
-        $self->throw_exception(
-          "UUID support requires the Data::GUID module: $_"
-        );
-      };
-      $new_guid = Data::GUID->new->as_string;
+      ($new_guid) = $self->_get_dbh->selectrow_array("SELECT $guid_method");
     }
 
     $updated_cols->{$guid_col} = $to_insert->{$guid_col} = $new_guid;

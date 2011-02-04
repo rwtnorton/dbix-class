@@ -10,6 +10,8 @@ use namespace::clean;
 __PACKAGE__->sql_limit_dialect ('Top');
 __PACKAGE__->sql_quote_char ([qw/[ ]/]);
 
+__PACKAGE__->new_guid(undef);
+
 =head1 NAME
 
 DBIx::Class::Storage::DBI::ODBC::ACCESS - Support specific to MS Access over ODBC
@@ -24,29 +26,16 @@ detects a MS Access back-end.
 This driver supports L<last_insert_id|DBIx::Class::Storage::DBI/last_insert_id>,
 empty inserts for tables with C<AUTOINCREMENT> columns, nested transactions via
 L<auto_savepoint|DBIx::Class::Storage::DBI/auto_savepoint>, C<GUID> columns via
-L<DBIx::Class::Storage::DBI::UniqueIdentifier> and L<Data::UUID> and
-C<IMAGE>/C<MEMO> columns, as well as support for
+L<DBIx::Class::Storage::DBI::UniqueIdentifier> and
 L<DBIx::Class::InflateColumn::DateTime> for C<DATETIME> columns.
 
 =head1 SUPPORTED VERSIONS
 
-This module has currently only been tested on MS Access 2007 using the Jet 4.0 engine.
+This module has currently only been tested on MS Access 2010 using the Jet 4.0
+engine.
 
 Information about how well it works on different version of MS Access is welcome
 (write the mailing list, or submit a ticket to RT if you find bugs.)
-
-=head1 KNOWN ACCESS PROBLEMS
-
-=over
-
-=item Invalid precision value
-
-This error message is received when trying to store more than 255 characters in a MEMO field.
-The problem is (to my knowledge) an error in the MS Access ODBC driver. The problem is fixed
-by setting the C<data_type> of the column to C<SQL_LONGVARCHAR> in C<add_columns>. 
-C<SQL_LONGVARCHAR> is a constant in the C<DBI> module.
-
-=back
 
 =cut
 
@@ -87,19 +76,19 @@ sub bind_attribute_by_data_type {
   my $attributes = $self->next::method(@_) || {};
 
   if ($self->_is_text_lob_type($data_type)) {
+#    print STDERR "Binding $data_type as SQL_LONGVARCHAR\n";
     $attributes->{TYPE} = DBI::SQL_LONGVARCHAR;
   }
   elsif ($self->_is_binary_lob_type($data_type)) {
+#    print STDERR "Binding $data_type as SQL_LONGVARBINARY\n";
     $attributes->{TYPE} = DBI::SQL_LONGVARBINARY;
   }
 
   return $attributes;
 }
 
-sub _new_uuid { undef }
-
 # savepoints are not supported, but nested transactions are.
-# Unfortunately DBI does not support nested transaction.
+# Unfortunately DBI does not support nested transactions.
 # WARNING: this code uses the undocumented 'BegunWork' DBI attribute.
 
 sub _svp_begin {

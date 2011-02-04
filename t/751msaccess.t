@@ -223,7 +223,7 @@ EOF
       local $schema->storage->{debug} = 0;
 
       lives_ok { $rs->create( { 'id' => $id, $type => $binstr{$size} } ) }
-        "inserted $size $type without dying";
+        "inserted $size $type without dying" or next;
 
       my $from_db = try { $rs->find($id)->$type } || '';
 
@@ -243,6 +243,9 @@ EOF
   }
 
 # test GUIDs (and the cursor GUID fixup stuff for ADO)
+
+  require Data::GUID;
+  $schema->storage->new_guid(sub { Data::GUID->new->as_string });
 
   local $schema->source('ArtistGUID')->column_info('artistid')->{data_type}
     = 'guid';
