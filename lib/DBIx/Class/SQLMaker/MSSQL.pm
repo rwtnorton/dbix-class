@@ -49,10 +49,10 @@ sub _datetime_now_sql { 'NOW()' }
     my ($self, $part, $amount, $date) = @_;
 
     die $self->_unsupported_date_adding($part, 'Microsoft SQL Server')
-      unless exists $part_map{$part};
+      unless exists $diff_part_map{$part};
 
     my $placeholder = $self->_convert('?');
-    return "(DATEADD($diff_part_map}$part}, $amount, $date))"
+    return "(DATEADD($diff_part_map{$part}, $amount, $date))"
   }
 }
 
