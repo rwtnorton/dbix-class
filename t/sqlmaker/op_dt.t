@@ -11,10 +11,20 @@ use DBIx::Class::SQLMaker::MSSQL;
 
 use_ok('DBICTest');
 
-my %sql_maker = (
-   sqlite => DBICTest->init_schema( no_deploy=>1 )->storage->sql_maker,
-   mssql => DBICTest->init_schema( no_deploy=> 1, storage_type => '::DBI::MSSQL' )->storage->sql_maker,
+my %schema = (
+   sqlite => DBICTest->init_schema(),
+   mssql => DBICTest->init_schema( no_deploy=> 1, storage_type => '::DBI::MSSQL' ),
 );
+
+my %rs = map { $_ => $schema{$_}->resultset('Event') } keys %schema;
+
+$rs{sqlite}->populate([
+ [qw(starts_at created_on skip_inflation)],
+ ['2010-12-12', '2010-12-14 12:12:12', '2019-12-12 12:12:12'],
+ ['2010-12-12', '2011-12-14 12:12:12', '2011-12-12 12:12:12'],
+]);
+
+#my %sql_maker = map { $_ => $schema{$_}->storage->sql_maker } keys %schema;
 
 my $date = DateTime->new(
    year => 2010,
@@ -25,229 +35,316 @@ my $date = DateTime->new(
    second => 12,
 );
 
+sub hri_thing {
+   return {
+      starts_at => $_[0],
+      created_on => $_[1],
+      skip_inflation => $_[2]
+   }
+}
+
 my $date2 = $date->clone->set_day(16);
 
 my @tests = (
   {
-    func   => 'select',
-    args   => ['artist', '*', { 'artist.when_began' => { -dt => $date } }],
+    search => { 'me.created_on' => { -dt => $date } },
     sqlite => {
-       stmt   => 'SELECT * FROM artist WHERE artist.when_began = ?',
-       bind   => [[ 'artist.when_began', '2010-12-14 12:12:12' ]],
+      select => 'me.starts_at, me.created_on, me.skip_inflation',
+      where  => 'me.created_on = ?',
+      bind   => [[ 'me.created_on', '2010-12-14 12:12:12' ]],
+      hri    => [hri_thing('2010-12-12', '2010-12-14 12:12:12', '2019-12-12 12:12:12')],
     },
     mssql => {
-       stmt   => 'SELECT * FROM artist WHERE artist.when_began = ?',
-       bind   => [[ 'artist.when_began', '2010-12-14 12:12:12.000' ]],
+      select => 'me.starts_at, me.created_on, me.skip_inflation',
+      where  => 'me.created_on = ?',
+      bind   => [[ 'me.created_on', '2010-12-14 12:12:12.000' ]],
     },
     msg => '-dt_now works',
   },
+
   {
-    func   => 'update',
-    args   => ['artist',
-      { 'artist.when_began' => { -dt => $date } },
-      { 'artist.when_ended' => { '<' => { -dt => $date2 } } }
-    ],
-    sqlite => {
-       stmt   => 'UPDATE artist SET artist.when_began = ?  WHERE artist.when_ended < ?  ',
-       bind   => [
-         [ 'artist.when_began', '2010-12-14 12:12:12' ],
-         [ 'artist.when_ended', '2010-12-16 12:12:12' ],
-       ],
-    },
+    search => { 'me.id' => 2 },
+    select => [ [ -dt_year => { -ident => 'me.created_on' } ] ],
+    as     => [ 'year' ],
     mssql => {
-       stmt   => 'UPDATE artist SET artist.when_began = ?  WHERE artist.when_ended < ?  ',
-       bind   => [
-         [ 'artist.when_began', '2010-12-14 12:12:12.000' ],
-         [ 'artist.when_ended', '2010-12-16 12:12:12.000' ],
-       ],
+      select => "DATEPART('year', me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 2 ]],
     },
-    msg => '-dt_now works',
-  },
-  {
-    func   => 'select',
-    args   => ['artist', [ [ -dt_year => { -ident => 'artist.when_began' } ] ]],
     sqlite => {
-      stmt   => "SELECT STRFTIME('%Y', artist.when_began) FROM artist",
-       bind   => [],
+      select => "STRFTIME('%Y', me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 2 ]],
+      hri    => [{ year => 2010 }],
     },
     msg    => '-dt_year works',
   },
+
   {
-    func   => 'select',
-    args   => ['artist', [ [ -dt_month => { -ident => 'artist.when_began' } ] ]],
+    search => { 'me.id' => 2 },
+    select   => [ [ -dt_month => { -ident => 'me.created_on' } ] ],
+    as       => [ 'month' ],
     sqlite => {
-      stmt   => "SELECT STRFTIME('%m', artist.when_began) FROM artist",
-      bind   => [],
+      select   => "STRFTIME('%m', me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 2 ]],
+      hri    => [{ month => 12 }],
+    },
+    mssql => {
+      select => "DATEPART('month', me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 2 ]],
     },
     msg    => '-dt_month works',
   },
+
   {
-    func   => 'select',
-    args   => ['artist', [ [ -dt_day => { -ident => 'artist.when_began' } ] ]],
+    search => { 'me.id' => 2 },
+    select   => [ [ -dt_day => { -ident => 'me.created_on' } ] ],
+    as       => [ 'day' ],
     sqlite => {
-      stmt   => "SELECT STRFTIME('%d', artist.when_began) FROM artist",
-      bind   => [],
+      select   => "STRFTIME('%d', me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 2 ]],
+      hri    => [{ day => 14 }],
     },
     mssql => {
-      stmt   => "SELECT DATEPART('day', artist.when_began) FROM artist",
-      bind   => [],
+      select => "DATEPART('day', me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 2 ]],
     },
     msg    => '-dt_day works',
   },
+
   {
-    func   => 'select',
-    args   => ['artist', [ [ -dt_hour => { -ident => 'artist.when_began' } ] ]],
+    search => { 'me.id' => 2 },
+    select   => [ [ -dt_hour => { -ident => 'me.created_on' } ] ],
+    as       => [ 'hour' ],
     sqlite => {
-      stmt   => "SELECT STRFTIME('%H', artist.when_began) FROM artist",
-      bind   => [],
+      select   => "STRFTIME('%H', me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 2 ]],
+      hri    => [{ hour => 12 }],
+    },
+    mssql => {
+      select => "DATEPART('hour', me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 2 ]],
     },
     msg    => '-dt_hour works',
   },
+
   {
-    func   => 'select',
-    args   => ['artist', [ [ -dt_minute => { -ident => 'artist.when_began' } ] ]],
+    search => { 'me.id' => 2 },
+    select   => [ [ -dt_minute => { -ident => 'me.created_on' } ] ],
+    as       => [ 'minute' ],
     sqlite => {
-      stmt   => "SELECT STRFTIME('%M', artist.when_began) FROM artist",
-      bind   => [],
+      select   => "STRFTIME('%M', me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 2 ]],
+      hri    => [{ minute => 12 }],
     },
     mssql => {
-      stmt   => "SELECT DATEPART('minute', artist.when_began) FROM artist",
-      bind   => [],
+      select => "DATEPART('minute', me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 2 ]],
     },
     msg    => '-dt_minute works',
   },
+
   {
-    func   => 'select',
-    args   => ['artist', [ [ -dt_second => { -ident => 'artist.when_began' } ] ]],
+    search => { 'me.id' => 2 },
+    select   => [ [ -dt_second => { -ident => 'me.created_on' } ] ],
+    as       => [ 'second' ],
     sqlite => {
-      stmt   => "SELECT STRFTIME('%s', artist.when_began) FROM artist",
-      bind   => [],
+      select   => "STRFTIME('%S', me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 2 ]],
+      hri    => [{ second => 12 }],
     },
     mssql => {
-      stmt   => "SELECT DATEPART('second', artist.when_began) FROM artist",
-      bind   => [],
+      select => "DATEPART('second', me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 2 ]],
     },
     msg    => '-dt_second works',
   },
+
   {
-    func   => 'select',
-    args   => ['artist', [ [ -dt_diff => [second => { -ident => 'artist.when_ended' }, \'artist.when_began' ] ] ]],
+    search => { 'me.id' => 3 },
+    select   => [ [ -dt_diff => [second => { -ident => 'me.created_on' }, \'me.skip_inflation' ] ] ],
+    as => [ 'sec_diff' ],
     sqlite => {
-      stmt   => "SELECT (STRFTIME('%s', artist.when_ended) - STRFTIME('%s', artist.when_began)) FROM artist",
-      bind   => [],
+      select   => "(STRFTIME('%s', me.created_on) - STRFTIME('%s', me.skip_inflation))",
+      where => "me.id = ?",
+      bind   => [['me.id' => 3 ]],
+      hri => [{ sec_diff => 2*24*60*60 }],
     },
     mssql => {
-      stmt   => "SELECT DATEDIFF('second', artist.when_ended, artist.when_began) FROM artist",
-      bind   => [],
+      select   => "DATEDIFF('second', me.created_on, me.skip_inflation)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 3 ]],
     },
     msg    => '-dt_diff (second) works',
   },
+
   {
-    func   => 'select',
-    args   => ['artist', [ [ -dt_diff => [day => { -ident => 'artist.when_ended' }, \'artist.when_began' ] ] ]],
+    search => { 'me.id' => 3 },
+    select   => [ [ -dt_diff => [day => { -ident => 'me.created_on' }, \'me.skip_inflation' ] ] ],
+    as => [ 'day_diff' ],
     sqlite => {
-      stmt   => "SELECT (JULIANDAY(artist.when_ended) - JULIANDAY(artist.when_began)) FROM artist",
-      bind   => [],
+      select   => "(JULIANDAY(me.created_on) - JULIANDAY(me.skip_inflation))",
+      where => "me.id = ?",
+      bind   => [['me.id' => 3 ]],
+      hri => [{ day_diff => 2 }],
     },
     mssql => {
-      stmt   => "SELECT DATEDIFF('dayofyear', artist.when_ended, artist.when_began) FROM artist",
-      bind   => [],
+      select   => "DATEDIFF('dayofyear', me.created_on, me.skip_inflation)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 3 ]],
     },
     msg    => '-dt_diff (day) works',
   },
+
   {
-    func   => 'select',
-    args   => ['artist', [ [ -dt_add => [year => 3, { -ident => 'artist.when_ended' } ] ] ]],
+    search => { 'me.id' => 3 },
+    select   => [ [ -dt_add => [year => 3, { -ident => 'me.created_on' } ] ] ],
+    as   => [ 'date' ],
     sqlite => {
-      stmt   => "SELECT (datetime(artist.when_ended, ? || ' years')) FROM artist",
-      bind   => [[ '', 3 ]],
+      select => "(datetime(me.created_on, ? || ' years'))",
+      where => "me.id = ?",
+      bind   => [['', 3], ['me.id' => 3 ]],
+      hri    => [{ date => '2014-12-14 12:12:12' }],
     },
     mssql => {
-      stmt   => "SELECT (DATEADD(year, ?, artist.when_ended)) FROM artist",
-      bind   => [[ '', 3 ]],
+      select => "(DATEADD(year, ?, me.created_on))",
+      where => "me.id = ?",
+      bind   => [['', 3], ['me.id' => 3 ]],
     },
     msg    => '-dt_add (year) works',
   },
+
   {
-    func   => 'select',
-    args   => ['artist', [ [ -dt_add => [month => 3, { -ident => 'artist.when_ended' } ] ] ]],
+    search => { 'me.id' => 3 },
+    select   => [ [ -dt_add => [month => 3, { -ident => 'me.created_on' } ] ] ],
+    as   => [ 'date' ],
     sqlite => {
-      stmt   => "SELECT (datetime(artist.when_ended, ? || ' months')) FROM artist",
-      bind   => [[ '', 3 ]],
+      select => "(datetime(me.created_on, ? || ' months'))",
+      where => "me.id = ?",
+      bind   => [['', 3], ['me.id' => 3 ]],
+      hri    => [{ date => '2012-03-14 12:12:12' }],
     },
     mssql => {
-      stmt   => "SELECT (DATEADD(month, ?, artist.when_ended)) FROM artist",
-      bind   => [[ '', 3 ]],
+      select => "(DATEADD(month, ?, me.created_on))",
+      where => "me.id = ?",
+      bind   => [['', 3], ['me.id' => 3 ]],
     },
     msg    => '-dt_add (month) works',
   },
+
   {
-    func   => 'select',
-    args   => ['artist', [ [ -dt_add => [day => 3, { -ident => 'artist.when_ended' } ] ] ]],
+    search => { 'me.id' => 3 },
+    select   => [ [ -dt_add => [day => 3, { -ident => 'me.created_on' } ] ] ],
+    as   => [ 'date' ],
     sqlite => {
-      stmt   => "SELECT (datetime(artist.when_ended, ? || ' days')) FROM artist",
-      bind   => [[ '', 3 ]],
+      select => "(datetime(me.created_on, ? || ' days'))",
+      where => "me.id = ?",
+      bind   => [['', 3], ['me.id' => 3 ]],
+      hri    => [{ date => '2011-12-17 12:12:12' }],
     },
     mssql => {
-      stmt   => "SELECT (DATEADD(dayofyear, ?, artist.when_ended)) FROM artist",
-      bind   => [[ '', 3 ]],
+      select => "(DATEADD(dayofyear, ?, me.created_on))",
+      where => "me.id = ?",
+      bind   => [['', 3], ['me.id' => 3 ]],
     },
     msg    => '-dt_add (day) works',
   },
+
   {
-    func   => 'select',
-    args   => ['artist', [ [ -dt_add => [hour => 3, { -ident => 'artist.when_ended' } ] ] ]],
+    search => { 'me.id' => 3 },
+    select   => [ [ -dt_add => [hour => 3, { -ident => 'me.created_on' } ] ] ],
+    as   => [ 'date' ],
     sqlite => {
-      stmt   => "SELECT (datetime(artist.when_ended, ? || ' hours')) FROM artist",
-      bind   => [[ '', 3 ]],
+      select => "(datetime(me.created_on, ? || ' hours'))",
+      where => "me.id = ?",
+      bind   => [['', 3], ['me.id' => 3 ]],
+      hri    => [{ date => '2011-12-14 15:12:12' }],
+    },
+    mssql => {
+      select => "(DATEADD(hour, ?, me.created_on))",
+      where => "me.id = ?",
+      bind   => [['', 3], ['me.id' => 3 ]],
     },
     msg    => '-dt_add (hour) works',
   },
+
   {
-    func   => 'select',
-    args   => ['artist', [ [ -dt_add => [minute => 3, { -ident => 'artist.when_ended' } ] ] ]],
+    search => { 'me.id' => 3 },
+    select   => [ [ -dt_add => [minute => 3, { -ident => 'me.created_on' } ] ] ],
+    as   => [ 'date' ],
     sqlite => {
-      stmt   => "SELECT (datetime(artist.when_ended, ? || ' minutes')) FROM artist",
-      bind   => [[ '', 3 ]],
+      select => "(datetime(me.created_on, ? || ' minutes'))",
+      where => "me.id = ?",
+      bind   => [['', 3], ['me.id' => 3 ]],
+      hri    => [{ date => '2011-12-14 12:15:12' }],
     },
     mssql => {
-      stmt   => "SELECT (DATEADD(minute, ?, artist.when_ended)) FROM artist",
-      bind   => [[ '', 3 ]],
+      select => "(DATEADD(minute, ?, me.created_on))",
+      where => "me.id = ?",
+      bind   => [['', 3], ['me.id' => 3 ]],
     },
     msg    => '-dt_add (minute) works',
   },
+
   {
-    func   => 'select',
-    args   => ['artist', [ [ -dt_add => [second => 3, { -ident => 'artist.when_ended' } ] ] ]],
+    search => { 'me.id' => 3 },
+    select   => [ [ -dt_add => [second => 3, { -ident => 'me.created_on' } ] ] ],
+    as   => [ 'date' ],
     sqlite => {
-      stmt   => "SELECT (datetime(artist.when_ended, ? || ' seconds')) FROM artist",
-      bind   => [[ '', 3 ]],
+      select => "(datetime(me.created_on, ? || ' seconds'))",
+      where => "me.id = ?",
+      bind   => [['', 3], ['me.id' => 3 ]],
+      hri    => [{ date => '2011-12-14 12:12:15' }],
     },
     mssql => {
-      stmt   => "SELECT (DATEADD(second, ?, artist.when_ended)) FROM artist",
-      bind   => [[ '', 3 ]],
+      select => "(DATEADD(second, ?, me.created_on))",
+      where => "me.id = ?",
+      bind   => [['', 3], ['me.id' => 3 ]],
     },
     msg    => '-dt_add (second) works',
   },
+
   {
-    func   => 'select',
-    args   => ['artist', [ [ -dt_add => [second => 3, { -dt_add => [ day => 1, { -ident => 'artist.when_ended' } ] } ] ] ]],
+    search => { 'me.id' => 3 },
+    select   => [ [ -dt_add => [second => 3, { -dt_add => [ day => 1, { -ident => 'me.created_on' } ] } ] ] ],
+    as       => [ 'date' ],
     sqlite => {
-      stmt   => "SELECT (datetime((datetime(artist.when_ended, ? || ' days')), ? || ' seconds')) FROM artist",
-      bind   => [['', 1], [ '', 3 ]],
+      select   => "(datetime((datetime(me.created_on, ? || ' days')), ? || ' seconds'))",
+      where => "me.id = ?",
+      bind   => [['', 1], [ '', 3 ], ['me.id', 3]],
+      hri    => [{ date => '2011-12-15 12:12:15' }],
     },
     mssql => {
-      stmt   => "SELECT (DATEADD(second, ?, (DATEADD(dayofyear, ?, artist.when_ended)))) FROM artist",
-      bind   => [[ '', 3 ], [ '', 1] ],
+      select => "(DATEADD(second, ?, (DATEADD(dayofyear, ?, me.created_on))))",
+      where => "me.id = ?",
+      bind   => [['', 3], [ '', 1 ], ['me.id', 3]],
     },
-    msg    => '-dt_add (second) works',
+    msg    => 'nested -dt_add works',
   },
+
   {
-    func   => 'select',
-    args   => ['artist', [ [ -dt_diff => [year => \'artist.when_started', { -ident => 'artist.when_ended' } ] ] ]],
+    search => { 'me.id' => 3 },
+    select   => [ [ -dt_diff => [year => \'me.starts_at', { -ident => 'me.created_on' } ] ] ],
+    as       => [ 'date' ],
     sqlite => {
       exception_like => qr/date diff not supported for part "year" with database "SQLite"/,
     },
+    mssql => {
+      select   => "DATEDIFF('year', me.starts_at, me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id', 3]],
+    },
+    msg => '-dt_diff (year) works',
   },
 );
 
@@ -255,17 +352,21 @@ for my $t (@tests) {
   local $"=', ';
 
   DB_TEST:
-  for my $db (keys %sql_maker) {
-     my $maker = $sql_maker{$db};
-
+  for my $db (keys %rs) {
      my $db_test = $t->{$db};
      next DB_TEST unless $db_test;
 
-     my($stmt, @bind);
+     my ($r, $my_rs);
 
      my $cref = sub {
-       my $op = $t->{func};
-       ($stmt, @bind) = $maker->$op (@ { $t->{args} } );
+       my $stuff = {
+         ( exists $t->{select}
+           ? ( select => $t->{select}, as => $t->{as} )
+           : ( columns => [qw(starts_at created_on skip_inflation)] )
+         )
+       };
+       $my_rs = $rs{$db}->search($t->{search}, $stuff);
+       $r = $my_rs->as_query
      };
 
      if ($db_test->{exception_like}) {
@@ -286,12 +387,14 @@ for my $t (@tests) {
          $cref->();
        }
        is_same_sql_bind(
-         $stmt,
-         \@bind,
-         $db_test->{stmt},
+         $r,
+         "(SELECT $db_test->{select} FROM event me WHERE $db_test->{where})",
          $db_test->{bind},
          ($t->{msg} ? "$t->{msg} ($db)" : ())
        );
+       if (my $hri = $db_test->{hri}) {
+         is_deeply [ $my_rs->hri_dump->all ], $hri, ($t->{msg} ? "$t->{msg} ($db actually pulls expected data)" : ());
+       }
      }
   }
 }
