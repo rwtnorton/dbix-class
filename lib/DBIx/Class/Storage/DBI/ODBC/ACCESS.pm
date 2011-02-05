@@ -41,6 +41,23 @@ engine.
 Information about how well it works on different version of MS Access is welcome
 (write the mailing list, or submit a ticket to RT if you find bugs.)
 
+=head1 USING GUID COLUMNS
+
+If you have C<GUID> PKs or other C<GUID> columns with
+L<auto_nextval|DBIx::Class::ResultSource/auto_nextval> you will need to set a
+L<new_guid|DBIx::Class::Storage::DBI::UniqueIdentifier/new_guid> callback, like
+so:
+
+  $schema->storage->new_guid(sub { Data::GUID->new->as_string });
+
+Under L<Catalyst> you can use code similar to this in your
+L<Catalyst::Model::DBIC::Schema> C<Model.pm>:
+
+  after BUILD => sub {
+    my $self = shift;
+    $self->storage->new_guid(sub { Data::GUID->new->as_string });
+  };
+
 =cut
 
 sub _dbh_last_insert_id { $_[1]->selectrow_array('select @@identity') }

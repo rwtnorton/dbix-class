@@ -28,6 +28,8 @@ Currently used by L<DBIx::Class::Storage::DBI::MSSQL>,
 L<DBIx::Class::Storage::DBI::SQLAnywhere> and
 L<DBIx::Class::Storage::DBI::ODBC::ACCESS>.
 
+=head1 new_guid
+
 The composing class must set C<new_guid> to to the method used to generate a new
 GUID. It can also set it to C<undef>, in which case the user is required to set
 it, or a runtime error will be thrown. It can be:
