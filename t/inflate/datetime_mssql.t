@@ -24,7 +24,8 @@ if (not ($dsn || $dsn2)) {
   plan skip_all =>
     'Set $ENV{DBICTEST_MSSQL_ODBC_DSN} and/or $ENV{DBICTEST_MSSQL_DSN} _USER '
     .'and _PASS to run this test' .
-    "\nWarning: This test drops and creates a table called 'small_dt'";
+    "\nWarning: This test drops and creates tables called 'small_dt' and "
+    ."'track'.";
 }
 
 plan skip_all => 'Test needs ' . DBIx::Class::Optional::Dependencies->req_missing_for ('test_dt')

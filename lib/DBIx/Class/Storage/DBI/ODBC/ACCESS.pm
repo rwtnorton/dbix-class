@@ -29,6 +29,10 @@ L<auto_savepoint|DBIx::Class::Storage::DBI/auto_savepoint>, C<GUID> columns via
 L<DBIx::Class::Storage::DBI::UniqueIdentifier> and
 L<DBIx::Class::InflateColumn::DateTime> for C<DATETIME> columns.
 
+=head1 EXAMPLE DSN
+
+  dbi:ODBC:driver={Microsoft Access Driver (*.mdb, *.accdb)};dbq=C:\Users\rkitover\Documents\access_sample.accdb
+
 =head1 SUPPORTED VERSIONS
 
 This module has currently only been tested on MS Access 2010 using the Jet 4.0
@@ -76,11 +80,9 @@ sub bind_attribute_by_data_type {
   my $attributes = $self->next::method(@_) || {};
 
   if ($self->_is_text_lob_type($data_type)) {
-#    print STDERR "Binding $data_type as SQL_LONGVARCHAR\n";
     $attributes->{TYPE} = DBI::SQL_LONGVARCHAR;
   }
   elsif ($self->_is_binary_lob_type($data_type)) {
-#    print STDERR "Binding $data_type as SQL_LONGVARBINARY\n";
     $attributes->{TYPE} = DBI::SQL_LONGVARBINARY;
   }
 
@@ -106,6 +108,36 @@ sub _svp_rollback {
   local $self->_dbh->{AutoCommit} = 0;
   local $self->_dbh->{BegunWork}  = 1;
   $self->_dbh_rollback;
+}
+
+sub datetime_parser_type {
+  'DBIx::Class::Storage::DBI::ODBC::ACCESS::DateTime::Format'
+}
+
+package # hide from PAUSE
+  DBIx::Class::Storage::DBI::ODBC::ACCESS::DateTime::Format;
+
+my $datetime_format = '%Y-%m-%d %H:%M:%S'; # %F %T, no fractional part
+my $datetime_parser;
+
+sub parse_datetime {
+  shift;
+  require DateTime::Format::Strptime;
+  $datetime_parser ||= DateTime::Format::Strptime->new(
+    pattern  => $datetime_format,
+    on_error => 'croak',
+  );
+  return $datetime_parser->parse_datetime(shift);
+}
+
+sub format_datetime {
+  shift;
+  require DateTime::Format::Strptime;
+  $datetime_parser ||= DateTime::Format::Strptime->new(
+    pattern  => $datetime_format,
+    on_error => 'croak',
+  );
+  return $datetime_parser->format_datetime(shift);
 }
 
 1;

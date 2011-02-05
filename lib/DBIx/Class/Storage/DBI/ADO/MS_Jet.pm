@@ -80,6 +80,36 @@ sub select_single {
   return @row;
 }
 
+sub datetime_parser_type {
+  'DBIx::Class::Storage::DBI::ADO::MS_Jet::DateTime::Format'
+}
+
+package # hide from PAUSE
+  DBIx::Class::Storage::DBI::ADO::MS_Jet::DateTime::Format;
+
+my $datetime_format = '%m/%d/%Y %I:%M:%S %p';
+my $datetime_parser;
+
+sub parse_datetime {
+  shift;
+  require DateTime::Format::Strptime;
+  $datetime_parser ||= DateTime::Format::Strptime->new(
+    pattern  => $datetime_format,
+    on_error => 'croak',
+  );
+  return $datetime_parser->parse_datetime(shift);
+}
+
+sub format_datetime {
+  shift;
+  require DateTime::Format::Strptime;
+  $datetime_parser ||= DateTime::Format::Strptime->new(
+    pattern  => $datetime_format,
+    on_error => 'croak',
+  );
+  return $datetime_parser->format_datetime(shift);
+}
+
 1;
 
 =head1 AUTHOR

@@ -18,8 +18,8 @@ DBICTest::Schema->load_classes('ArtistGUID');
 my ($dsn,  $user,  $pass)  = @ENV{map { "DBICTEST_MSACCESS_ODBC_${_}" } qw/DSN USER PASS/};
 my ($dsn2, $user2, $pass2) = @ENV{map { "DBICTEST_MSACCESS_ADO_${_}" }  qw/DSN USER PASS/};
 
-plan skip_all => <<'EOF' unless $dsn;
-Set $ENV{DBICTEST_MSACCESS_ODBC_DSN} and/or $ENV{DBICTEST_MSACCESS_ADO_DSN} (and optionally _USER and _PASS) to run these tests.
+plan skip_all => <<"EOF" unless $dsn || $dsn2;
+Set $ENV{DBICTEST_MSACCESS_ODBC_DSN} and/or $ENV{DBICTEST_MSACCESS_ADO_DSN} (and optionally _USER and _PASS) to run these tests.\nWarning: this test drops and creates the tables 'artist', 'cd', 'bindtype_test' and 'artist_guid'.
 EOF
 
 my @info = (
@@ -50,7 +50,7 @@ foreach my $info (@info) {
     artistid AUTOINCREMENT PRIMARY KEY,
     name VARCHAR(255) NULL,
     charfield CHAR(10) NULL,
-    rank INT
+    rank INT NULL
   )
 EOF
 
@@ -315,10 +315,12 @@ SQL
 done_testing;
 
 sub cleanup {
-  # cannot drop a table if it has been used, have to reconnect first
-  $schema->storage->disconnect;
-  local $^W = 0; # for ADO OLE exceptions
-  $schema->storage->dbh->do("DROP TABLE $_")
-    for qw/artist cd bindtype_test artist_guid/;
+  if (my $storage = eval { $schema->storage }) {
+    # cannot drop a table if it has been used, have to reconnect first
+    $schema->storage->disconnect;
+    local $^W = 0; # for ADO OLE exceptions
+    $schema->storage->dbh->do("DROP TABLE $_")
+      for qw/artist cd bindtype_test artist_guid/;
+  }
 }
 # vim:sts=2 sw=2:
