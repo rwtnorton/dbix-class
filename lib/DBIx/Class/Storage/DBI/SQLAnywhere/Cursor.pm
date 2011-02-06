@@ -1,4 +1,4 @@
-package DBIx::Class::Storage::DBI::ADO::MS_Jet::Cursor;
+package DBIx::Class::Storage::DBI::SQLAnywhere::Cursor;
 
 use strict;
 use warnings;
@@ -7,20 +7,21 @@ use mro 'c3';
 
 =head1 NAME
 
-DBIx::Class::Storage::DBI::ADO::MS_Jet::Cursor - GUID Support for MS Access over
-ADO
+DBIx::Class::Storage::DBI::SQLAnywhere::Cursor - GUID Support for SQL Anywhere
+over L<DBD::SQLAnywhere>
 
 =head1 DESCRIPTION
 
-This class is for normalizing GUIDs retrieved from Microsoft Access over ADO.
+This class is for normalizing GUIDs retrieved from SQL Anywhere via
+L<DBD::SQLAnywhere>.
 
 You probably don't want to be here, see
-L<DBIx::Class::Storage::DBI::ODBC::ACCESS> for information on the Microsoft
-Access driver.
+L<DBIx::Class::Storage::DBI::SQLAnywhere> for information on the SQL Anywhere
+driver.
 
-Unfortunately when using L<DBD::ADO>, GUIDs come back wrapped in braces, the
-purpose of this class is to remove them.
-L<DBIx::Class::Storage::DBI::ADO::MS_Jet> sets
+Unfortunately when using L<DBD::SQLAnywhere>, GUIDs come back in binary, the
+purpose of this class is to transform them to text.
+L<DBIx::Class::Storage::DBI::SQLAnywhere> sets
 L<cursor_class|DBIx::Class::Storage::DBI/cursor_class> to this class by default.
 It is overridable via your
 L<connect_info|DBIx::Class::Storage::DBI/connect_info>.
@@ -53,8 +54,9 @@ sub _dbh_next {
     if ($storage->_is_guid_type($data_type)) {
       my $returned = $row[$select_idx];
 
-      $row[$select_idx] = substr($returned, 1, 36)
-        if substr($returned, 0, 1) eq '{';
+      if (length $returned == 16) {
+        $row[$select_idx] = $storage->_uuid_to_str($returned);
+      }
     }
   }
 
@@ -83,8 +85,9 @@ sub _dbh_all {
       if ($storage->_is_guid_type($data_type)) {
         my $returned = $row->[$select_idx];
 
-        $row->[$select_idx] = substr($returned, 1, 36)
-          if substr($returned, 0, 1) eq '{';
+        if (length $returned == 16) {
+          $row->[$select_idx] = $storage->_uuid_to_str($returned);
+        }
       }
     }
   }
