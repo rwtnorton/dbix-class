@@ -192,6 +192,12 @@ EOF
   is $row->artistid, $current_artistid+1,
     'empty insert generated correct PK';
 
+# test that autoinc column still works after empty insert
+  $row = $ars->create({ name => 'after_empty_insert' });
+
+  is $row->artistid, $current_artistid+2,
+    'autoincrement column functional aftear empty insert';
+
 # test blobs (stolen from 73oracle.t)
   eval { local $^W = 0; $dbh->do('DROP TABLE bindtype_test') };
   $dbh->do(qq[
