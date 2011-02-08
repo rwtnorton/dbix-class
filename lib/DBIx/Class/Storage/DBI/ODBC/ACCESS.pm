@@ -7,10 +7,16 @@ use mro 'c3';
 use List::Util 'first';
 use namespace::clean;
 
+__PACKAGE__->mk_group_accessors(inherited =>
+  'disable_sth_caching_for_image_insert_or_update'
+);
+
 __PACKAGE__->sql_limit_dialect ('Top');
 __PACKAGE__->sql_quote_char ([qw/[ ]/]);
 
 __PACKAGE__->new_guid(undef);
+
+__PACKAGE__->disable_sth_caching_for_image_insert_or_update(1);
 
 =head1 NAME
 
@@ -66,28 +72,58 @@ sub sqlt_type { 'ACCESS' }
 
 # support empty insert
 sub insert {
-    my $self = shift;
-    my ($source, $to_insert) = @_;
+  my $self = shift;
+  my ($source, $to_insert) = @_;
 
-    if (keys %$to_insert == 0) {
-        my $columns_info = $source->columns_info;
-        my $autoinc_col = first {
-          $columns_info->{$_}{is_auto_increment}
-        } keys %$columns_info;
+  my $columns_info = $source->columns_info;
 
-        if (not $autoinc_col) {
-          $self->throw_exception(
+  if (keys %$to_insert == 0) {
+    my $autoinc_col = first {
+      $columns_info->{$_}{is_auto_increment}
+    } keys %$columns_info;
+
+    if (not $autoinc_col) {
+      $self->throw_exception(
 'empty insert only supported for tables with an autoincrement column'
-          );
-        }
-
-        my $table = $source->from;
-        $table = $$table if ref $table;
-
-        $to_insert->{$autoinc_col} = \"dmax('${autoinc_col}', '${table}')+1";
+      );
     }
 
-    $self->next::method(@_);
+    my $table = $source->from;
+    $table = $$table if ref $table;
+
+    $to_insert->{$autoinc_col} = \"dmax('${autoinc_col}', '${table}')+1";
+  }
+
+  my $is_image_insert = 0;
+
+  for my $col (keys %$to_insert) {
+    $is_image_insert = 1
+      if $self->_is_binary_lob_type($columns_info->{$col}{data_type});
+  }
+
+  local $self->{disable_sth_caching} = 1 if $is_image_insert
+    && $self->disable_sth_caching_for_image_insert_or_update;
+
+  return $self->next::method(@_);
+}
+
+sub update {
+  my $self = shift;
+  my ($source, $fields) = @_;
+
+  my $columns_info = $source->columns_info;
+
+  my $is_image_insert = 0;
+
+  for my $col (keys %$fields) {
+    $is_image_insert = 1
+      if $self->_is_binary_lob_type($columns_info->{$col}{data_type});
+  }
+
+  local $self->{disable_sth_caching} = 1 if $is_image_insert
+    && $self->disable_sth_caching_for_image_insert_or_update;
+
+  return $self->next::method(@_);
 }
 
 sub bind_attribute_by_data_type {

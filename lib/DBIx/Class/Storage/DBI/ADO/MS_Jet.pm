@@ -11,6 +11,8 @@ use DBIx::Class::Storage::DBI::ADO::MS_Jet::Cursor ();
 
 __PACKAGE__->cursor_class('DBIx::Class::Storage::DBI::ADO::MS_Jet::Cursor');
 
+__PACKAGE__->disable_sth_caching_for_image_insert_or_update(0);
+
 =head1 NAME
 
 DBIx::Class::Storage::DBI::ADO::MS_Jet - Support for MS Access over ADO

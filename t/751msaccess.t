@@ -223,30 +223,44 @@ EOF
 
   foreach my $type (qw( blob clob a_memo )) {
     foreach my $size (qw( small large )) {
-      $id++;
+      SKIP: {
+        skip 'TEXT columns not cast to MEMO over ODBC', 2
+          if $type eq 'clob' && $size eq 'large' && $dsn =~ /:ODBC:/;
+
+        $id++;
 
 # turn off horrendous binary DBIC_TRACE output
-      local $schema->storage->{debug} = 0;
+        local $schema->storage->{debug} = 0;
 
-      lives_ok { $rs->create( { 'id' => $id, $type => $binstr{$size} } ) }
-        "inserted $size $type without dying" or next;
+        lives_ok { $rs->create( { 'id' => $id, $type => $binstr{$size} } ) }
+          "inserted $size $type without dying" or next;
 
-      my $from_db = try { $rs->find($id)->$type } || '';
+        my $from_db = try { $rs->find($id)->$type } || '';
 
-      ok($from_db eq $binstr{$size}, "verified inserted $size $type" )
-        or do {
-          my $hexdump = sub {
-            join '', map sprintf('%02X', ord), split //, shift
+        ok($from_db eq $binstr{$size}, "verified inserted $size $type" )
+          or do {
+            my $hexdump = sub {
+              join '', map sprintf('%02X', ord), split //, shift
+            };
+            diag 'Got: ', "\n", substr($hexdump->($from_db),0,255), '...',
+              substr($hexdump->($from_db),-255);
+            diag 'Size: ', length($from_db);
+            diag 'Expected Size: ', length($binstr{$size});
+            diag 'Expected: ', "\n",
+              substr($hexdump->($binstr{$size}), 0, 255),
+              "...", substr($hexdump->($binstr{$size}),-255);
           };
-          diag 'Got: ', "\n", substr($hexdump->($from_db),0,255), '...',
-            substr($hexdump->($from_db),-255);
-          diag 'Size: ', length($from_db);
-          diag 'Expected Size: ', length($binstr{$size});
-          diag 'Expected: ', "\n", substr($hexdump->($binstr{$size}), 0, 255),
-            "...", substr($hexdump->($binstr{$size}),-255);
-        };
+      }
     }
   }
+# test IMAGE update
+  lives_ok {
+    $rs->search({ id => 0 })->update({ blob => $binstr{small} });
+  } 'updated IMAGE to small binstr without dying';
+
+  lives_ok {
+    $rs->search({ id => 0 })->update({ blob => $binstr{large} });
+  } 'updated IMAGE to large binstr without dying';
 
 # test GUIDs (and the cursor GUID fixup stuff for ADO)
 
