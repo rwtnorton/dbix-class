@@ -25,7 +25,6 @@ my @connect_info = (
 
 my $schema;
 
-SKIP:
 for my $connect_info (@connect_info) {
   my ($dsn, $user, $pass) = @$connect_info;
 

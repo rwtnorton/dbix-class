@@ -3,6 +3,7 @@ package DBIx::Class::Storage::DBI::ADO;
 use base 'DBIx::Class::Storage::DBI';
 use mro 'c3';
 use Try::Tiny;
+use Sub::Name;
 use namespace::clean;
 
 =head1 NAME
@@ -47,6 +48,24 @@ sub _dbh_get_info {
   };
 
   $self->next::method(@_);
+}
+
+# Monkeypatch out the horrible warnings during global destruction.
+# A patch to DBD::ADO has been submitted as well.
+sub _init {
+  no warnings 'redefine';
+  require DBD::ADO;
+
+  my $disconnect = *DBD::ADO::db::disconnect{CODE};
+
+  *DBD::ADO::db::disconnect = subname 'DBD::ADO::db::disconnect' => sub {
+    my $warn_handler = $SIG{__WARN__} || sub { warn @_ };
+    local $SIG{__WARN__} = sub {
+      $warn_handler->(@_)
+        unless $_[0] =~ /Not a Win32::OLE object|uninitialized value/;
+    };
+    $disconnect->(@_);
+  };
 }
 
 # Here I was just experimenting with ADO cursor types, left in as a comment in
