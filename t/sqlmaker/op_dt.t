@@ -222,7 +222,7 @@ my @tests = (
     },
     msg    => '-dt_month works',
   },
-
+## -dt_day tests
   {
     search => { 'me.id' => 1 },
     select   => [ [ -dt_day => { -ident => 'me.created_on' } ] ],
@@ -238,6 +238,13 @@ my @tests = (
       where => "me.id = ?",
       bind   => [['me.id' => 1 ]],
       hri    => [{ day => 14 }],
+    },
+    postgres => {
+      select => "EXTRACT(day FROM me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 1 ]],
+      hri    => [{ day => 14 }],
+
     },
     msg    => '-dt_day works',
   },
