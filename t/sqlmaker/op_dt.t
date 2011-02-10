@@ -188,6 +188,12 @@ my @tests = (
       bind   => [['me.id' => 1 ]],
       hri    => [{ year => 2010, month => 12 }],
     },
+    postgres => {
+      select => "EXTRACT(year FROM me.created_on), EXTRACT(month FROM me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 1 ]],
+      hri    => [{ year => 2010, month => 12 }],
+    },
     msg    => '-dt_get (year, month) works',
   },
 
