@@ -119,11 +119,11 @@ sub hri_thing {
 
 my $date2 = $date->clone->set_day(16);
 
-my @tests = (
-## -dt-now tests
 ## test format:
 ##   search => { dbic_search_code/params }
 ##   rdbms_name => literal_sql
+my @tests = (
+## -dt-now tests
   {
     search => { 'me.created_on' => { -dt => $date } },
     sqlite => {
@@ -146,7 +146,7 @@ my @tests = (
     },
     msg => '-dt_now works',
   },
-
+## -dt_year tests
   {
     search => { 'me.id' => 1 },
     select => [ [ -dt_year => { -ident => 'me.created_on' } ] ],
@@ -159,6 +159,12 @@ my @tests = (
     },
     sqlite => {
       select => "STRFTIME('%Y', me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 1 ]],
+      hri    => [{ year => 2010 }],
+    },
+    postgres => {
+      select => "EXTRACT(year FROM me.created_on)",
       where => "me.id = ?",
       bind   => [['me.id' => 1 ]],
       hri    => [{ year => 2010 }],
