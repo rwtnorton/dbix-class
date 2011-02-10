@@ -13,8 +13,9 @@ use Try::Tiny;
 use DBICTest;
 
 my %dbs_to_test = (
-   sqlite => 1,
-   mssql  => 0,
+   sqlite   => 1,
+   mssql    => 0,
+   postgres => 1,
 );
 
 my %schema = (
@@ -48,6 +49,34 @@ $s;
          DBICTest->init_schema( no_deploy=> 1, storage_type => '::DBI::MSSQL' )
       }
    },
+   ## copypasta'd for great justice
+   postgres =>  do {
+      my ($dsn, $user, $pass) = @ENV{map { "DBICTEST_POSTGRES_${_}" } qw/DSN USER PASS/};
+      if ($dsn && $user) {
+         my $s = DBICTest::Schema->connect($dsn, $user, $pass);
+         try { $s->storage->ensure_connected };
+
+         $s->storage->dbh_do (sub {
+             my ($storage, $dbh) = @_;
+             eval { $dbh->do("DROP TABLE event") };
+             $dbh->do(<<'SQL');
+CREATE TABLE event (
+   id SERIAL NOT NULL PRIMARY KEY,
+   starts_at DATE NOT NULL,
+   created_on TIMESTAMP NOT NULL,
+   varchar_date VARCHAR(20),
+   varchar_datetime VARCHAR(20),
+   skip_inflation TIMESTAMP,
+   ts_without_tz TIMESTAMP WITHOUT TIME ZONE
+)
+SQL
+        $dbs_to_test{postgres} = 1;
+});
+$s;
+      } else {
+         DBICTest->init_schema( no_deploy=> 1, storage_type => '::DBI::Pg' )
+      }
+   }
 );
 
 my %rs = map { $_ => $schema{$_}->resultset('Event') } keys %schema;
@@ -63,6 +92,13 @@ $rs{mssql}->populate([
  ['2010-12-12', '2010-12-14 12:12:12.000', '2019-12-12 12:12:12.000'],
  ['2010-12-12', '2011-12-14 12:12:12.000', '2011-12-12 12:12:12.000'],
 ]) if $schema{mssql}->storage->connected;
+
+$rs{postgres}->populate([
+ [qw(starts_at created_on skip_inflation)],
+ ['2010-12-12', '2010-12-14 12:12:12', '2019-12-12 12:12:12'],
+ ['2010-12-12', '2011-12-14 12:12:12', '2011-12-12 12:12:12'],
+]) if $schema{postgres}->storage->connected;
+
 
 my $date = DateTime->new(
    year => 2010,
@@ -84,6 +120,10 @@ sub hri_thing {
 my $date2 = $date->clone->set_day(16);
 
 my @tests = (
+## -dt-now tests
+## test format:
+##   search => { dbic_search_code/params }
+##   rdbms_name => literal_sql
   {
     search => { 'me.created_on' => { -dt => $date } },
     sqlite => {
@@ -97,6 +137,12 @@ my @tests = (
       where  => 'me.created_on = ?',
       bind   => [[ 'me.created_on', '2010-12-14 12:12:12.000' ]],
       hri    => [hri_thing('2010-12-12', '2010-12-14 12:12:12.000', '2019-12-12 12:12:12.000')],
+    },
+    postgres => {
+      select => 'me.starts_at, me.created_on, me.skip_inflation',
+      where  => 'me.created_on = ?',
+      bind   => [[ 'me.created_on', '2010-12-14 12:12:12' ]],
+      hri    => [hri_thing('2010-12-12', '2010-12-14 12:12:12', '2019-12-12 12:12:12')],
     },
     msg => '-dt_now works',
   },
@@ -479,6 +525,9 @@ for my $t (@tests) {
           skip $db_test->{skip} . " ($db)", 1 if $db_test->{skip};
 
           my $msg = ($t->{msg} ? "$t->{msg} ($db actually pulls expected data)" : '');
+          use Data::Dumper;
+          warn "$db: " . $t->{msg} ." got: " . Dumper [ $my_rs->hri_dump->all ];
+          warn "$db " . $t->{msg} ." expected: ". Dumper $hri;
           try {
              is_deeply [ $my_rs->hri_dump->all ], $hri, $msg;
           } catch {
