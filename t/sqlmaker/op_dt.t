@@ -324,7 +324,7 @@ my @tests = (
     },
     msg    => '-dt_second works',
   },
-
+## -dt_diff tests
   {
     search => { 'me.id' => 2 },
     select   => [ [ -dt_diff => [second => { -ident => 'me.created_on' }, \'me.skip_inflation' ] ] ],
@@ -337,6 +337,12 @@ my @tests = (
     },
     mssql => {
       select   => "DATEDIFF(second, me.skip_inflation, me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 2 ]],
+      hri => [{ sec_diff => 2*24*60*60 }],
+    },
+    postgres => {
+      select   => "EXTRACT(epoch FROM (me.created_on::timestamp with time zone - me.skip_inflation::timestamp with time zone))",
       where => "me.id = ?",
       bind   => [['me.id' => 2 ]],
       hri => [{ sec_diff => 2*24*60*60 }],
