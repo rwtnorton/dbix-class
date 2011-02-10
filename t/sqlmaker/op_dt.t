@@ -298,7 +298,7 @@ my @tests = (
     },
     msg    => '-dt_minute works',
   },
-
+## -dt_second tests
   {
     search => { 'me.id' => 1 },
     select   => [ [ -dt_second => { -ident => 'me.created_on' } ] ],
@@ -314,6 +314,13 @@ my @tests = (
       where => "me.id = ?",
       bind   => [['me.id' => 1 ]],
       hri    => [{ second => 12 }],
+    },
+    postgres => {
+      select => "EXTRACT(second FROM me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 1 ]],
+      hri    => [{ second => 12 }],
+
     },
     msg    => '-dt_second works',
   },
