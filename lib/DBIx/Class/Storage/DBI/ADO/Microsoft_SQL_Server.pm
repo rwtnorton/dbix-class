@@ -23,6 +23,10 @@ This subclass supports MSSQL server connections via L<DBD::ADO>.
 The MSSQL specific functionality is provided by
 L<DBIx::Class::Storage::DBI::MSSQL>.
 
+=head1 EXAMPLE DSN
+
+  dbi:ADO:provider=sqlncli10;server=EEEBOX\SQLEXPRESS
+
 =head1 CAVEATS
 
 =head2 identities
