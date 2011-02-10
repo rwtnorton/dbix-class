@@ -273,7 +273,7 @@ my @tests = (
     },
     msg    => '-dt_hour works',
   },
-
+## -dt_minute tests
   {
     search => { 'me.id' => 1 },
     select   => [ [ -dt_minute => { -ident => 'me.created_on' } ] ],
@@ -286,6 +286,12 @@ my @tests = (
     },
     mssql => {
       select => "DATEPART(minute, me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 1 ]],
+      hri    => [{ minute => 12 }],
+    },
+    postgres => {
+      select => "EXTRACT(minute FROM me.created_on)",
       where => "me.id = ?",
       bind   => [['me.id' => 1 ]],
       hri    => [{ minute => 12 }],
