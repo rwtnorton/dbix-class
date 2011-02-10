@@ -171,7 +171,7 @@ my @tests = (
     },
     msg    => '-dt_year works',
   },
-
+## -dt_get(year, month) tests
   {
     search => { 'me.id' => 1 },
     select => [ [ -dt_get => [[qw(year month)], { -ident => 'me.created_on' }] ] ],
@@ -196,7 +196,7 @@ my @tests = (
     },
     msg    => '-dt_get (year, month) works',
   },
-
+## -dt_month tests
   {
     search => { 'me.id' => 1 },
     select   => [ [ -dt_month => { -ident => 'me.created_on' } ] ],
@@ -212,6 +212,13 @@ my @tests = (
       where => "me.id = ?",
       bind   => [['me.id' => 1 ]],
       hri    => [{ month => 12 }],
+    },
+    postgres => {
+      select => "EXTRACT(month FROM me.created_on)",
+      where => "me.id = ?",
+      bind   => [['me.id' => 1 ]],
+      hri    => [{ month => 12 }],
+
     },
     msg    => '-dt_month works',
   },
