@@ -34,6 +34,13 @@ information on the MS Access driver for L<DBIx::Class>.
   # newer Access versions:
   dbi:ADO:Provider=Microsoft.ACE.OLEDB.12.0;Data Source=C:\Users\rkitover\Documents\access_sample.accdb;Persist Security Info=False'
 
+=head1 TEXT/IMAGE/MEMO COLUMNS
+
+The ADO driver does not suffer from the
+L<problems|DBIx::Class::Storage::DBI::ODBC::ACCESS/"TEXT/IMAGE/MEMO COLUMNS">
+the L<ODBC|DBIx::Class::Storage::DBI::ODBC::ACCESS> driver has with these types
+of columns. You can use them safely.
+
 =cut
 
 # AutoCommit does not get reset properly after transactions for some reason
