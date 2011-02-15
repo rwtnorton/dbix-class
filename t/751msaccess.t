@@ -34,8 +34,14 @@ foreach my $info (@info) {
 
   next unless $dsn;
 
+  my %binstr = ( 'small' => join('', map { chr($_) } ( 1 .. 127 )) );
+  $binstr{'large'} = $binstr{'small'} x 1024;
+
+  my $maxloblen = length $binstr{'large'};
+
   $schema = DBICTest::Schema->connect($dsn, $user, $pass, {
-    auto_savepoint => 1
+    auto_savepoint => 1,
+    LongReadLen => $maxloblen,
   });
 
   my $guard = Scope::Guard->new(\&cleanup);
@@ -210,13 +216,6 @@ EOF
     a_memo MEMO         NULL
   )
   ],{ RaiseError => 1, PrintError => 1 });
-
-  my %binstr = ( 'small' => join('', map { chr($_) } ( 1 .. 127 )) );
-  $binstr{'large'} = $binstr{'small'} x 1024;
-
-  my $maxloblen = length $binstr{'large'};
-  local $dbh->{'LongReadLen'} = $maxloblen;
-  local $dbh->{'LongTruncOk'} = 1;
 
   my $rs = $schema->resultset('BindType');
   my $id = 0;

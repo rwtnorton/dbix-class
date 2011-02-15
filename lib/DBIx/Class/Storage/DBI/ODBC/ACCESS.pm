@@ -47,6 +47,22 @@ engine.
 Information about how well it works on different version of MS Access is welcome
 (write the mailing list, or submit a ticket to RT if you find bugs.)
 
+=head1 TEXT/IMAGE/MEMO COLUMNS
+
+Avoid using C<TEXT> columns as they will be truncated to 255 bytes. Some other
+drivers (like L<ADO|DBIx::Class::Storage::DBI::ADO::MS_Jet>) will automatically
+convert C<TEXT> columns to C<MEMO>, but the ODBC driver does not.
+
+C<IMAGE> columns work correctly, but the statements for inserting or updating an
+C<IMAGE> column will not be L<cached|DBI/prepare_cached>, due to a bug in the
+Access ODBC driver.
+
+C<MEMO> columns work correctly as well, but you must take care to set
+L<LongReadLen|DBI/LongReadLen> to C<$max_memo_size * 2 + 1>. This is done for
+you automatically if you pass L<LongReadLen|DBI/LongReadLen> in your
+L<connect_info|DBIx::Class::Storage::DBI/connect_info>; but if you set this
+attribute directly on the C<$dbh>, keep this limitation in mind.
+
 =head1 USING GUID COLUMNS
 
 If you have C<GUID> PKs or other C<GUID> columns with
@@ -69,6 +85,16 @@ L<Catalyst::Model::DBIC::Schema> C<Model.pm>:
 sub _dbh_last_insert_id { $_[1]->selectrow_array('select @@identity') }
 
 sub sqlt_type { 'ACCESS' }
+
+sub _run_connection_actions {
+  my $self = shift;
+
+  my $long_read_len = $self->_dbh->{LongReadLen};
+
+  $self->_dbh->{LongReadLen} = $long_read_len * 2 + 1;
+
+  return $self->next::method(@_);
+}
 
 # support empty insert
 sub insert {
