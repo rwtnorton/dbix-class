@@ -2926,7 +2926,10 @@ sub _max_column_bytesize {
       }
     }
 
-    $max_size ||= $self->_get_dbh->{LongReadLen} || 8000;
+    my $long_read_len = $self->_get_dbh->{LongReadLen};
+
+    $max_size ||= ($long_read_len == 0 || $long_read_len == 80)
+        ? 32768 : $long_read_len;
   };
 }
 
