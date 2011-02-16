@@ -86,12 +86,16 @@ sub _dbh_last_insert_id { $_[1]->selectrow_array('select @@identity') }
 
 sub sqlt_type { 'ACCESS' }
 
+# set LongReadLen = LongReadLen * 2 + 1 (see docs on MEMO)
 sub _run_connection_actions {
   my $self = shift;
 
   my $long_read_len = $self->_dbh->{LongReadLen};
 
-  $self->_dbh->{LongReadLen} = $long_read_len * 2 + 1;
+# The last one is the ADO default.
+  if ($long_read_len != 0 && $long_read_len != 80 && $long_read_len != 2147483647) {
+    $self->_dbh->{LongReadLen} = $long_read_len * 2 + 1;
+  }
 
   return $self->next::method(@_);
 }

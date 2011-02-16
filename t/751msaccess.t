@@ -34,6 +34,12 @@ foreach my $info (@info) {
 
   next unless $dsn;
 
+# Check that we can connect without any options.
+  $schema = DBICTest::Schema->connect($dsn, $user, $pass);
+  lives_ok {
+    $schema->storage->ensure_connected;
+  } 'connection without any options';
+
   my %binstr = ( 'small' => join('', map { chr($_) } ( 1 .. 127 )) );
   $binstr{'large'} = $binstr{'small'} x 1024;
 
@@ -234,7 +240,8 @@ EOF
         lives_ok { $rs->create( { 'id' => $id, $type => $binstr{$size} } ) }
           "inserted $size $type without dying" or next;
 
-        my $from_db = try { $rs->find($id)->$type } || '';
+        my $from_db = eval { $rs->find($id)->$type } || '';
+        diag $@ if $@;
 
         ok($from_db eq $binstr{$size}, "verified inserted $size $type" )
           or do {

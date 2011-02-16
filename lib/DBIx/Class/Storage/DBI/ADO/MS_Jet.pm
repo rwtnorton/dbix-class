@@ -41,6 +41,11 @@ L<problems|DBIx::Class::Storage::DBI::ODBC::ACCESS/"TEXT/IMAGE/MEMO COLUMNS">
 the L<ODBC|DBIx::Class::Storage::DBI::ODBC::ACCESS> driver has with these types
 of columns. You can use them safely.
 
+However, the caveat about L<LongReadLen|DBI/LongReadLen> having to be twice the
+max size of your largest C<MEMO> C<+1> still applies. L<DBD::ADO> sets
+L<LongReadLen|DBI/LongReadLen> to a large value by default, so it should be safe
+to just leave it unset.
+
 =cut
 
 # AutoCommit does not get reset properly after transactions for some reason
