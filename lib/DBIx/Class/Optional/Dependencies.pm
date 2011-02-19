@@ -370,6 +370,7 @@ my $reqs = {
       $ENV{DBICTEST_MSACCESS_ODBC_DSN}
         ? (
           %$rdbms_msaccess_odbc,
+          %$datetime_basic,
           'Data::GUID' => '0',
         ) : ()
     },
@@ -380,6 +381,7 @@ my $reqs = {
       $ENV{DBICTEST_MSACCESS_ADO_DSN}
         ? (
           %$rdbms_msaccess_ado,
+          %$datetime_basic,
           'Data::GUID' => 0,
         ) : ()
     },

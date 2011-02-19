@@ -12,6 +12,7 @@ __PACKAGE__->mk_group_accessors(inherited =>
 );
 
 __PACKAGE__->sql_limit_dialect ('Top');
+__PACKAGE__->sql_maker_class('DBIx::Class::SQLMaker::ACCESS');
 __PACKAGE__->sql_quote_char ([qw/[ ]/]);
 
 __PACKAGE__->new_guid(undef);

@@ -22,6 +22,15 @@ plan skip_all => <<"EOF" unless $dsn || $dsn2;
 Set $ENV{DBICTEST_MSACCESS_ODBC_DSN} and/or $ENV{DBICTEST_MSACCESS_ADO_DSN} (and optionally _USER and _PASS) to run these tests.\nWarning: this test drops and creates the tables 'artist', 'cd', 'bindtype_test' and 'artist_guid'.
 EOF
 
+plan skip_all => 'Test needs ' .
+DBIx::Class::Optional::Dependencies->req_missing_for('test_rdbms_msaccess_odbc')
+. ' or ' .
+DBIx::Class::Optional::Dependencies->req_missing_for('test_rdbms_msaccess_ado')
+  unless
+    DBIx::Class::Optional::Dependencies->req_ok_for('test_rdbms_msaccess_odbc')
+    or
+    DBIx::Class::Optional::Dependencies->req_ok_for('test_rdbms_msaccess_ado');
+
 my @info = (
   [ $dsn,  $user  || '', $pass  || '' ],
   [ $dsn2, $user2 || '', $pass2 || '' ],
@@ -46,6 +55,7 @@ foreach my $info (@info) {
   my $maxloblen = length $binstr{'large'};
 
   $schema = DBICTest::Schema->connect($dsn, $user, $pass, {
+    quote_names => 1,
     auto_savepoint => 1,
     LongReadLen => $maxloblen,
   });
@@ -95,11 +105,23 @@ EOF
   )
 EOF
 
+  $dbh->do(<<EOF);
+  CREATE TABLE track (
+    trackid AUTOINCREMENT PRIMARY KEY,
+    cd INTEGER REFERENCES cd(cdid),
+    [position] INTEGER,
+    title VARCHAR(255),
+    last_updated_on DATETIME,
+    last_updated_at DATETIME
+  )
+EOF
+
   my $cd = $schema->resultset('CD')->create({
     artist => $first_artistid,
     title => 'Some Album',
   });
 
+# one-step join
   my $joined_artist = $schema->resultset('Artist')->search({
     artistid => $first_artistid,
   }, {
@@ -108,7 +130,31 @@ EOF
     '+as'     => [ 'cd_title'  ],
   })->next;
 
-  is $joined_artist->get_column('cd_title'), 'Some Album', 'join works';
+  is $joined_artist->get_column('cd_title'), 'Some Album',
+    'one-step join works';
+
+# two-step join
+  my $track = $schema->resultset('Track')->create({
+    cd => $cd->cdid,
+    position => 1,
+    title => 'my track',
+  });
+
+  my $joined_track = try {
+    $schema->resultset('Artist')->search({
+      artistid => $first_artistid,
+    }, {
+      join => [{ cds => 'tracks' }],
+      '+select' => [ 'tracks.title' ],
+      '+as'     => [ 'track_title'  ],
+    })->next;
+  }
+  catch {
+    diag "Could not execute two-step join: $_";
+  };
+
+  is try { $joined_track->get_column('track_title') }, 'my track',
+    'two-step join works';
 
 # test basic transactions
   $schema->txn_do(sub {
@@ -211,62 +257,65 @@ EOF
     'autoincrement column functional aftear empty insert';
 
 # test blobs (stolen from 73oracle.t)
-  eval { local $^W = 0; $dbh->do('DROP TABLE bindtype_test') };
-  $dbh->do(qq[
-  CREATE TABLE bindtype_test
-  (
-    id     INT          NOT NULL PRIMARY KEY,
-    bytea  INT          NULL,
-    blob   IMAGE        NULL,
-    clob   TEXT         NULL,
-    a_memo MEMO         NULL
-  )
-  ],{ RaiseError => 1, PrintError => 1 });
-
-  my $rs = $schema->resultset('BindType');
-  my $id = 0;
-
-  foreach my $type (qw( blob clob a_memo )) {
-    foreach my $size (qw( small large )) {
-      SKIP: {
-        skip 'TEXT columns not cast to MEMO over ODBC', 2
-          if $type eq 'clob' && $size eq 'large' && $dsn =~ /:ODBC:/;
-
-        $id++;
 
 # turn off horrendous binary DBIC_TRACE output
-        local $schema->storage->{debug} = 0;
+  {
+    local $schema->storage->{debug} = 0;
 
-        lives_ok { $rs->create( { 'id' => $id, $type => $binstr{$size} } ) }
-          "inserted $size $type without dying" or next;
+    eval { local $^W = 0; $dbh->do('DROP TABLE bindtype_test') };
+    $dbh->do(qq[
+    CREATE TABLE bindtype_test
+    (
+      id     INT          NOT NULL PRIMARY KEY,
+      bytea  INT          NULL,
+      blob   IMAGE        NULL,
+      clob   TEXT         NULL,
+      a_memo MEMO         NULL
+    )
+    ],{ RaiseError => 1, PrintError => 1 });
 
-        my $from_db = eval { $rs->find($id)->$type } || '';
-        diag $@ if $@;
+    my $rs = $schema->resultset('BindType');
+    my $id = 0;
 
-        ok($from_db eq $binstr{$size}, "verified inserted $size $type" )
-          or do {
-            my $hexdump = sub {
-              join '', map sprintf('%02X', ord), split //, shift
+    foreach my $type (qw( blob clob a_memo )) {
+      foreach my $size (qw( small large )) {
+        SKIP: {
+          skip 'TEXT columns not cast to MEMO over ODBC', 2
+            if $type eq 'clob' && $size eq 'large' && $dsn =~ /:ODBC:/;
+
+          $id++;
+
+          lives_ok { $rs->create( { 'id' => $id, $type => $binstr{$size} } ) }
+            "inserted $size $type without dying" or next;
+
+          my $from_db = eval { $rs->find($id)->$type } || '';
+          diag $@ if $@;
+
+          ok($from_db eq $binstr{$size}, "verified inserted $size $type" )
+            or do {
+              my $hexdump = sub {
+                join '', map sprintf('%02X', ord), split //, shift
+              };
+              diag 'Got: ', "\n", substr($hexdump->($from_db),0,255), '...',
+                substr($hexdump->($from_db),-255);
+              diag 'Size: ', length($from_db);
+              diag 'Expected Size: ', length($binstr{$size});
+              diag 'Expected: ', "\n",
+                substr($hexdump->($binstr{$size}), 0, 255),
+                "...", substr($hexdump->($binstr{$size}),-255);
             };
-            diag 'Got: ', "\n", substr($hexdump->($from_db),0,255), '...',
-              substr($hexdump->($from_db),-255);
-            diag 'Size: ', length($from_db);
-            diag 'Expected Size: ', length($binstr{$size});
-            diag 'Expected: ', "\n",
-              substr($hexdump->($binstr{$size}), 0, 255),
-              "...", substr($hexdump->($binstr{$size}),-255);
-          };
+        }
       }
     }
-  }
 # test IMAGE update
-  lives_ok {
-    $rs->search({ id => 0 })->update({ blob => $binstr{small} });
-  } 'updated IMAGE to small binstr without dying';
+    lives_ok {
+      $rs->search({ id => 0 })->update({ blob => $binstr{small} });
+    } 'updated IMAGE to small binstr without dying';
 
-  lives_ok {
-    $rs->search({ id => 0 })->update({ blob => $binstr{large} });
-  } 'updated IMAGE to large binstr without dying';
+    lives_ok {
+      $rs->search({ id => 0 })->update({ blob => $binstr{large} });
+    } 'updated IMAGE to large binstr without dying';
+  }
 
 # test GUIDs (and the cursor GUID fixup stuff for ADO)
 
@@ -346,7 +395,7 @@ sub cleanup {
     $schema->storage->disconnect;
     local $^W = 0; # for ADO OLE exceptions
     $schema->storage->dbh->do("DROP TABLE $_")
-      for qw/artist cd bindtype_test artist_guid/;
+      for qw/artist track cd bindtype_test artist_guid/;
   }
 }
 # vim:sts=2 sw=2:

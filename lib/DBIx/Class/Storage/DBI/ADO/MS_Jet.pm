@@ -41,10 +41,18 @@ L<problems|DBIx::Class::Storage::DBI::ODBC::ACCESS/"TEXT/IMAGE/MEMO COLUMNS">
 the L<ODBC|DBIx::Class::Storage::DBI::ODBC::ACCESS> driver has with these types
 of columns. You can use them safely.
 
+When you execute a C<CREATE TABLE> statement over this driver with a C<TEXT>
+column, it will be converted to C<MEMO>, while in the
+L<ODBC|DBIx::Class::Storage::DBI::ODBC::ACCESS> driver it is converted to
+C<VARCHAR(255)>.
+
 However, the caveat about L<LongReadLen|DBI/LongReadLen> having to be twice the
-max size of your largest C<MEMO> C<+1> still applies. L<DBD::ADO> sets
-L<LongReadLen|DBI/LongReadLen> to a large value by default, so it should be safe
-to just leave it unset.
+max size of your largest C<MEMO/TEXT> column C<+1> still applies. L<DBD::ADO>
+sets L<LongReadLen|DBI/LongReadLen> to a large value by default, so it should be
+safe to just leave it unset. If you do pass a L<LongReadLen|DBI/LongReadLen> in
+your L<connect_info|DBIx::Class::Storage::DBI/connect_info>, it will be
+multiplied by two and C<1> added, just as for the
+L<ODBC|DBIx::Class::Storage::DBI::ODBC::ACCESS> driver.
 
 =cut
 
