@@ -2,7 +2,6 @@ package DBIx::Class::Storage::DBI::ADO;
 
 use base 'DBIx::Class::Storage::DBI';
 use mro 'c3';
-use Try::Tiny;
 use Sub::Name;
 use namespace::clean;
 
@@ -24,15 +23,21 @@ sub _rebless {
   my $dbtype = $self->_dbh_get_info(17);
 
   if (not $dbtype) {
-    warn 'Unable to determine ADO driver, failling back to generic support';
+    warn "Unable to determine ADO driver, failling back to generic support.\n";
     return;
   }
 
   $dbtype =~ s/\W/_/gi;
+
   my $subclass = "DBIx::Class::Storage::DBI::ADO::${dbtype}";
+
   if ($self->load_optional_class($subclass) && !$self->isa($subclass)) {
     bless $self, $subclass;
     $self->_rebless;
+  }
+  else {
+    warn "Expected driver '$subclass' not found, using generic support. " .
+         "Please file an RT.\n";
   }
 }
 
