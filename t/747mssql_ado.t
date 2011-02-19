@@ -19,9 +19,16 @@ $schema->storage->ensure_connected;
 
 isa_ok( $schema->storage, 'DBIx::Class::Storage::DBI::ADO::Microsoft_SQL_Server' );
 
+my $ver = $schema->storage->_server_info->{normalized_dbms_version};
+
+ok $ver, 'can introspect DBMS version';
+
+is $schema->storage->sql_limit_dialect, ($ver >= 9 ? 'RowNumberOver' : 'Top'),
+  'correct limit dialect detected';
+
 $schema->storage->dbh_do (sub {
     my ($storage, $dbh) = @_;
-    eval { $dbh->do("DROP TABLE artist") };
+    eval { local $^W = 0; $dbh->do("DROP TABLE artist") };
     $dbh->do(<<'SQL');
 CREATE TABLE artist (
    artistid INT IDENTITY NOT NULL,
