@@ -324,7 +324,7 @@ my @tests = (
     },
     msg    => '-dt_second works',
   },
-## -dt_diff tests
+## -dt_diff(second) tests
   {
     search => { 'me.id' => 2 },
     select   => [ [ -dt_diff => [second => { -ident => 'me.created_on' }, \'me.skip_inflation' ] ] ],
@@ -350,6 +350,7 @@ my @tests = (
     msg    => '-dt_diff (second) works',
   },
 
+# -dt_diff(day) tests
   {
     search => { 'me.id' => 2 },
     select   => [ [ -dt_diff => [day => { -ident => 'me.created_on' }, \'me.skip_inflation' ] ] ],
@@ -366,6 +367,13 @@ my @tests = (
       bind   => [['me.id' => 2 ]],
       hri => [{ day_diff => 2 }],
     },
+    postgres => {
+      select   => "EXTRACT(DAY FROM (me.created_on::timestamp with time zone - me.skip_inflation::timestamp with time zone))",
+      where => "me.id = ?",
+      bind   => [['me.id' => 2 ]],
+      hri => [{ day_diff => 2 }],
+    },
+
     msg    => '-dt_diff (day) works',
   },
 
