@@ -1532,14 +1532,15 @@ sub txn_commit {
 
 sub _dbh_commit {
   my $self = shift;
-  my $dbh  = $self->_dbh
-    or $self->throw_exception('cannot COMMIT on a disconnected handle');
-  $dbh->commit;
+  $self->_dbh->commit;
 }
 
 sub txn_rollback {
   my $self = shift;
   my $dbh = $self->_dbh;
+  if (! $dbh) {
+    $self->throw_exception('cannot ROLLBACK on a disconnected handle');
+  }
   try {
     if ($self->{transaction_depth} == 1) {
       $self->debugobj->txn_rollback()
@@ -1573,9 +1574,7 @@ sub txn_rollback {
 
 sub _dbh_rollback {
   my $self = shift;
-  my $dbh  = $self->_dbh
-    or $self->throw_exception('cannot ROLLBACK on a disconnected handle');
-  $dbh->rollback;
+  $self->_dbh->rollback;
 }
 
 # This used to be the top-half of _execute.  It was split out to make it
