@@ -5,6 +5,16 @@ use warnings;
 
 use base qw/Class::Accessor::Grouped/;
 
+sub get_component_class {
+    my $class = $_[0]->get_inherited($_[1]);
+    $_[0]->ensure_class_loaded($class);
+    return $class;
+};
+
+sub set_component_class {
+    return shift->set_inherited(@_);
+}
+
 1;
 
 =head1 NAME
