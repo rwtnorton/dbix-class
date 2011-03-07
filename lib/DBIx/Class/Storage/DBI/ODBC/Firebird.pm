@@ -2,8 +2,11 @@ package DBIx::Class::Storage::DBI::ODBC::Firebird;
 
 use strict;
 use warnings;
-use base qw/DBIx::Class::Storage::DBI::InterBase/;
+use base 'DBIx::Class::Storage::DBI::InterBase';
 use mro 'c3';
+use DBD::ODBC 1.29;
+use Try::Tiny;
+use namespace::clean;
 
 =head1 NAME
 
@@ -37,8 +40,37 @@ sub _init { 1 }
 # ODBC uses dialect 3 by default, good
 sub _set_sql_dialect { 1 }
 
-# releasing savepoints doesn't work, but that shouldn't matter
+# releasing savepoints doesn't work for some reason, but that shouldn't matter
 sub _svp_release { 1 }
+
+sub _svp_rollback {
+  my ($self, $name) = @_;
+
+  try {
+    $self->_dbh->do("ROLLBACK TO SAVEPOINT $name")
+  }
+  catch {
+    # Firebird ODBC driver bug, ignore
+    if (not /Unable to fetch information about the error/) {
+      die $_;
+    }
+  };
+}
+
+# AutoCommit status does not get reset properly, possibly because of the
+# SQLRowCount bug in the Firebird ODBC driver.
+
+sub _dbh_commit {
+  my $self = shift;
+  $self->next::method(@_);
+  $self->_dbh->{AutoCommit} = $self->_dbh_autocommit;
+}
+
+sub _dbh_rollback {
+  my $self = shift;
+  $self->next::method(@_);
+  $self->_dbh->{AutoCommit} = $self->_dbh_autocommit;
+}
 
 package # hide from PAUSE
   DBIx::Class::Storage::DBI::ODBC::Firebird::DateTime::Format;
@@ -91,3 +123,4 @@ See L<DBIx::Class/AUTHOR> and L<DBIx::Class/CONTRIBUTORS>.
 You may distribute this code under the same terms as Perl itself.
 
 =cut
+# vim:sts=2 sw=2:
